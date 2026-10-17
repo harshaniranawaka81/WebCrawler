@@ -45,6 +45,15 @@ namespace WebCrawler.Infrastructure.Services
                 _logger.LogError(ex, "Request timeout for URL: {Url}", uri);
                 throw;
             }
+            finally
+            {
+                // Release rate limiter slot to allow other requests to proceed
+                // This is critical for concurrent limiters to free up slots
+                if (_rateLimiter != null)
+                {
+                    _rateLimiter.Release();
+                }
+            }
         }
     }
 }

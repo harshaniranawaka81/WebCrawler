@@ -49,5 +49,13 @@ namespace WebCrawler.Infrastructure.Services
             _lastRequestTime = DateTime.UtcNow.AddSeconds(-1);
             _logger.LogDebug("Rate limiter reset");
         }
+
+        /// <summary>
+        /// No-op for delay-based limiter (no resources to release)
+        /// </summary>
+        public void Release()
+        {
+            // Delay-based limiter doesn't hold any resources
+        }
     }
 }

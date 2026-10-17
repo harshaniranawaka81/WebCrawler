@@ -62,6 +62,17 @@ namespace WebCrawler.Infrastructure.Services
         }
 
         /// <summary>
+        /// Releases resources held by all configured rate limiters
+        /// </summary>
+        public void Release()
+        {
+            foreach (var limiter in _limiters)
+            {
+                limiter.Release();
+            }
+        }
+
+        /// <summary>
         /// Gets the number of configured limiters
         /// </summary>
         public int LimiterCount => _limiters.Count;
