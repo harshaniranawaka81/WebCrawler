@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="WebCrawler.Core/WebCrawler.Core.csproj" />
+  <Project Path="WebCrawler.Infrastructure/WebCrawler.Infrastructure.csproj" />
+  <Project Path="WebCrawler.Tests/WebCrawler.Tests.csproj" />
+  <Project Path="WebCrawler/WebCrawler.csproj" />
+</Solution>
