@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WebCrawler.Configuration;
 using WebCrawler.Core.Interfaces;
+using WebCrawler.Core.Policies;
 using WebCrawler.Core.Services;
 using WebCrawler.Infrastructure.Interfaces;
 using WebCrawler.Infrastructure.Services;
@@ -27,6 +28,11 @@ services.AddLogging(config =>
 
 // Configuration
 services.Configure<WebCrawlerSettings>(configuration.GetSection("WebCrawlerSettings"));
+services.Configure<HttpClientPolicies>(configuration.GetSection("HttpClientPolicies"));
+
+// Get policy settings for HTTP client configuration
+var httpPoliciesSection = configuration.GetSection("HttpClientPolicies");
+var httpPolicies = httpPoliciesSection.Get<HttpClientPolicies>() ?? new HttpClientPolicies();
 
 // Link storage servi
 services.AddSingleton<ILinkStorage>(sp =>
@@ -36,12 +42,17 @@ services.AddSingleton<ILinkStorage>(sp =>
     return new FileLinkStorage(options.Value.VisitedPagesOutputFilePath, logger: logger);
 });
 
-// Infrastructure services
+// Infrastructure services - HTTP Client with resilience policies
 services.AddHttpClient<IPageFetcher, HttpPageFetcher>()
     .ConfigureHttpClient(client =>
     {
         client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
         client.Timeout = TimeSpan.FromSeconds(30);
+    })
+    .AddPolicyHandler((sp, _) =>
+    {
+        var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("HttpClientPolicies");
+        return HttpPolicyFactory.CreateCombinedPolicy(httpPolicies, logger);
     });
 
 services.AddScoped<ILinkExtractor, HtmlLinkExtractor>();

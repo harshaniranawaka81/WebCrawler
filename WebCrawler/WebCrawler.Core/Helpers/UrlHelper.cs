@@ -15,9 +15,9 @@ namespace WebCrawler.Core.Helpers
         /// <summary>
         /// Checks if two URLs belong to the same host
         /// </summary>
-            public static bool IsSameHost(Uri baseUri, Uri targetUri)
-                {
-                    return baseUri.Host.Equals(targetUri.Host, StringComparison.OrdinalIgnoreCase);
-                }
-            }
+        public static bool IsSameHost(Uri baseUri, Uri targetUri)
+        {
+            return baseUri.Host.Equals(targetUri.Host, StringComparison.OrdinalIgnoreCase);
         }
+    }
+}
