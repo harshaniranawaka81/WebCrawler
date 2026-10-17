@@ -15,7 +15,9 @@ namespace WebCrawler.Core.Services
         private readonly IOutputWriter _outputWriter;
         private readonly ILinkStorage? _linkStorage;
         private readonly IExceptionHandler? _exceptionHandler;
+        private readonly IRobotsChecker? _robotsChecker;
         private readonly int? _maxPagesToCrawl;
+        private readonly bool _respectRobotsTxt;
         private readonly ILogger<Crawler> _logger;
 
         private readonly ConcurrentDictionary<string, byte> _visited
@@ -28,6 +30,8 @@ namespace WebCrawler.Core.Services
             ILinkStorage? linkStorage = null,
             int? maxPagesToCrawl = null,
             IExceptionHandler? exceptionHandler = null,
+            IRobotsChecker? robotsChecker = null,
+            bool respectRobotsTxt = true,
             ILogger<Crawler>? logger = null)
         {
             _pageFetcher = pageFetcher;
@@ -36,6 +40,8 @@ namespace WebCrawler.Core.Services
             _linkStorage = linkStorage;
             _maxPagesToCrawl = maxPagesToCrawl;
             _exceptionHandler = exceptionHandler;
+            _robotsChecker = robotsChecker;
+            _respectRobotsTxt = respectRobotsTxt;
             _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance.CreateLogger<Crawler>();
         }
 
@@ -88,6 +94,17 @@ namespace WebCrawler.Core.Services
                         {
                             _logger.LogDebug("Link points to different host, skipping: {Url}", uri);
                             continue;
+                        }
+
+                        // Check robots.txt if enabled
+                        if (_respectRobotsTxt && _robotsChecker != null)
+                        {
+                            var isAllowed = await _robotsChecker.IsAllowedAsync(uri);
+                            if (!isAllowed)
+                            {
+                                _logger.LogDebug("URL disallowed by robots.txt, skipping: {Url}", uri);
+                                continue;
+                            }
                         }
 
                         discoveredLinks.Add(uri.AbsoluteUri);

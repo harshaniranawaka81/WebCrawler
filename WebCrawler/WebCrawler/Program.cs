@@ -57,6 +57,9 @@ services.AddHttpClient<IPageFetcher, HttpPageFetcher>()
 
 services.AddScoped<ILinkExtractor, HtmlLinkExtractor>();
 
+// Robots.txt checker
+services.AddScoped<IRobotsChecker, RobotsChecker>();
+
 // Core services
 services.AddScoped<IOutputWriter, ConsoleOutputWriter>();
 services.AddScoped<WebCrawler.Core.Interfaces.IExceptionHandler, GlobalExceptionHandler>();
@@ -67,6 +70,7 @@ services.AddScoped<ICrawler>(sp =>
     var outputWriter = sp.GetRequiredService<IOutputWriter>();
     var linkStorage = sp.GetRequiredService<ILinkStorage>();
     var exceptionHandler = sp.GetRequiredService<IExceptionHandler>();
+    var robotsChecker = sp.GetRequiredService<IRobotsChecker>();
     var options = sp.GetRequiredService<IOptions<WebCrawlerSettings>>();
     var logger = sp.GetRequiredService<ILogger<Crawler>>();
 
@@ -77,6 +81,8 @@ services.AddScoped<ICrawler>(sp =>
         linkStorage,
         options.Value.MaxPagesToCrawl,
         exceptionHandler,
+        robotsChecker,
+        options.Value.RespectRobotsTxt,
         logger
     );
 });
