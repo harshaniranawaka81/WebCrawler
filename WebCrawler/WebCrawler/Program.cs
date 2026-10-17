@@ -42,6 +42,32 @@ services.AddSingleton<ILinkStorage>(sp =>
     return new FileLinkStorage(options.Value.VisitedPagesOutputFilePath, logger: logger);
 });
 
+// Rate limiting configuration
+services.AddScoped<IRateLimiter>(sp =>
+{
+    var settings = sp.GetRequiredService<IOptions<WebCrawlerSettings>>().Value;
+    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+    var composite = new CompositeRateLimiter(loggerFactory.CreateLogger<CompositeRateLimiter>());
+
+    // Add delay-based rate limiter
+    if (settings.DelayBetweenRequestsMs > 0)
+    {
+        composite.Add(new DelayRateLimiter(
+            settings.DelayBetweenRequestsMs,
+            loggerFactory.CreateLogger<DelayRateLimiter>()));
+    }
+
+    // Add concurrent request limiter
+    if (settings.MaxConcurrentRequests.HasValue && settings.MaxConcurrentRequests > 0)
+    {
+        composite.Add(new ConcurrentRequestLimiter(
+            settings.MaxConcurrentRequests.Value,
+            loggerFactory.CreateLogger<ConcurrentRequestLimiter>()));
+    }
+
+    return composite;
+});
+
 // Infrastructure services - HTTP Client with resilience policies
 services.AddHttpClient<IPageFetcher, HttpPageFetcher>()
     .ConfigureHttpClient(client =>
@@ -49,11 +75,26 @@ services.AddHttpClient<IPageFetcher, HttpPageFetcher>()
         client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
         client.Timeout = TimeSpan.FromSeconds(30);
     })
+    .ConfigureHttpMessageHandlerBuilder(builder =>
+    {
+        // Rate limiter will be injected via constructor of HttpPageFetcher
+    })
     .AddPolicyHandler((sp, _) =>
     {
         var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("HttpClientPolicies");
         return HttpPolicyFactory.CreateCombinedPolicy(httpPolicies, logger);
     });
+
+// Override the default IPageFetcher with our custom factory that injects rate limiter
+services.AddScoped<IPageFetcher>(sp =>
+{
+    var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+    var httpClient = httpClientFactory.CreateClient(nameof(IPageFetcher));
+    var logger = sp.GetRequiredService<ILogger<HttpPageFetcher>>();
+    var rateLimiter = sp.GetRequiredService<IRateLimiter>();
+
+    return new HttpPageFetcher(httpClient, logger, rateLimiter);
+});
 
 services.AddScoped<ILinkExtractor, HtmlLinkExtractor>();
 
