@@ -1,31 +1,33 @@
-using Serilog;
+﻿using Serilog;
 using WebCrawler.Configuration;
 using WebCrawler.Core.Interfaces;
 using WebCrawler.Extensions;
-using WebCrawler.Infrastructure.Interfaces;
+using WebCrawler.Infrastructure.Policies;
+using WebCrawler.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
-
 // Initialize application
 var configuration = BuildConfiguration();
 ConfigureLogging(configuration);
 
+int exitCode = 0;
 try
 {
     var serviceProvider = ConfigureServices(configuration);
-    await RunApplicationAsync(serviceProvider);
+    exitCode = await RunApplicationAsync(serviceProvider);
 }
 catch (Exception ex)
 {
     Log.Fatal(ex, "Application terminated unexpectedly");
+    exitCode = 1;
 }
 finally
 {
     Log.CloseAndFlush();
 }
 
-return;
+return exitCode;
 
 #region Setup
 
@@ -68,100 +70,21 @@ IServiceProvider ConfigureServices(IConfiguration configuration)
 
 #region Execution
 
-async Task RunApplicationAsync(IServiceProvider serviceProvider)
+async Task<int> RunApplicationAsync(IServiceProvider serviceProvider)
 {
     try
     {
-        var exceptionHandler = serviceProvider.GetRequiredService<IExceptionHandler>();
-        var crawler = serviceProvider.GetRequiredService<ICrawler>();
-        var storage = serviceProvider.GetRequiredService<ILinkStorage>();
-        var settings = serviceProvider.GetRequiredService<IOptions<WebCrawlerSettings>>();
-
-        DisplayWelcome();
-
-        var url = await GetUrlAsync(settings.Value.DefaultUrl);
-        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? validUri))
-        {
-            Console.WriteLine("[ERROR] Invalid URL format.");
-            Environment.Exit(1);
-        }
-
-        Console.WriteLine($"\n[START] Starting crawl from: {url}\n");
-        var stats = await exceptionHandler.ExecuteAsync(
-            async () => await crawler.CrawlAsync(validUri),
-            "Web Crawling");
-
-        DisplayResults(stats, storage);
+        var orchestrator = serviceProvider.GetRequiredService<IApplicationOrchestrator>();
+        return await orchestrator.RunAsync();
     }
     catch (Exception ex)
     {
         var exceptionHandler = serviceProvider.GetRequiredService<IExceptionHandler>();
         exceptionHandler.Handle(ex);
         Log.Fatal(ex, "Application failed with an unhandled exception");
-        Environment.Exit(1);
+        return 1;
     }
 }
 
 #endregion
 
-#region User Interface
-
-void DisplayWelcome()
-{
-    Console.WriteLine("[SPIDER] Web Crawler Application");
-    Console.WriteLine("====================================\n");
-}
-
-async Task<string> GetUrlAsync(string defaultUrl)
-{
-    Console.WriteLine("Enter the URL of the website you want to crawl: ");
-    string? url = Console.ReadLine();
-
-    if (string.IsNullOrEmpty(url))
-    {
-        url = defaultUrl;
-        Console.WriteLine($"[DEFAULT] Using default URL: {url}");
-    }
-
-    return url;
-}
-
-void DisplayResults(WebCrawler.Core.Models.CrawlStatistics? stats, ILinkStorage storage)
-{
-    if (stats != null)
-    {
-        Console.WriteLine(stats.GenerateReport());
-    }
-
-    DisplayVisitedLinksPath(storage);
-    DisplayLogFilePath();
-    LogCompletion();
-}
-
-void DisplayVisitedLinksPath(ILinkStorage storage)
-{
-    Console.WriteLine($"[SUCCESS] Visited links saved to: {storage.GetStoragePath()}\n");
-}
-
-void DisplayLogFilePath()
-{
-    var logPath = Path.Combine(Directory.GetCurrentDirectory(), "logs");
-    if (!Directory.Exists(logPath))
-        return;
-
-    var latestLog = Directory.GetFiles(logPath, "*.txt")
-        .OrderByDescending(f => File.GetLastWriteTime(f))
-        .FirstOrDefault();
-
-    if (!string.IsNullOrEmpty(latestLog))
-    {
-        Console.WriteLine($"[LOGS] Crawl logs saved to: {latestLog}\n");
-    }
-}
-
-void LogCompletion()
-{
-    Log.Information("Application completed successfully");
-}
-
-#endregion

@@ -1,48 +1,80 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
-using WebCrawler.Infrastructure.Interfaces;
+using WebCrawler.Core.Interfaces;
 
 namespace WebCrawler.Infrastructure.Services
 {
     /// <summary>
-    /// Combines multiple rate limiting strategies (delay + concurrency limits).
-    /// Applies all rate limiters in sequence to ensure compliance with all policies.
+    /// Combined rate limiter that enforces both delay-based and concurrency-based limits.
+    /// Integrates the logic of DelayRateLimiter and ConcurrentRequestLimiter into a single, efficient limiter.
+    /// Ensures requests are spaced out by minimum delay AND respects concurrent request limits.
     /// </summary>
     public class CompositeRateLimiter : IRateLimiter
     {
+        // Delay-based rate limiting
+        private readonly int _delayMs;
+        private DateTime _lastRequestTime;
+
+        // Concurrency-based rate limiting
+        private readonly SemaphoreSlim _semaphore;
+
+        // Composite management
         private readonly List<IRateLimiter> _limiters = new();
         private readonly ILogger<CompositeRateLimiter> _logger;
 
-        public CompositeRateLimiter(ILogger<CompositeRateLimiter>? logger = null)
+        /// <summary>
+        /// Creates a combined rate limiter with both delay and concurrency limits.
+        /// </summary>
+        /// <param name="delayMs">Minimum delay in milliseconds between consecutive requests</param>
+        /// <param name="maxConcurrentRequests">Maximum number of concurrent requests allowed</param>
+        /// <param name="logger">Optional logger for diagnostic information</param>
+        public CompositeRateLimiter(
+            int delayMs = 0,
+            int maxConcurrentRequests = 1,
+            ILogger<CompositeRateLimiter>? logger = null)
         {
+            _delayMs = Math.Max(0, delayMs);
+            _lastRequestTime = DateTime.UtcNow.AddSeconds(-1);
+
+            if (maxConcurrentRequests <= 0)
+                throw new ArgumentException("Max concurrent requests must be greater than 0", nameof(maxConcurrentRequests));
+
+            _semaphore = new SemaphoreSlim(maxConcurrentRequests, maxConcurrentRequests);
             _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance
                 .CreateLogger<CompositeRateLimiter>();
+
+            _logger.LogInformation(
+                "Composite rate limiter initialized: {DelayMs}ms delay, {MaxConcurrent} max concurrent requests",
+                _delayMs, maxConcurrentRequests);
         }
 
         /// <summary>
-        /// Adds a rate limiter to the composite
+        /// Adds a custom rate limiter to the composite (for extensibility)
         /// </summary>
         public CompositeRateLimiter Add(IRateLimiter limiter)
         {
             if (limiter != null)
             {
                 _limiters.Add(limiter);
-                _logger.LogDebug("Added rate limiter: {Type}", limiter.GetType().Name);
+                _logger.LogDebug("Added custom rate limiter: {Type}", limiter.GetType().Name);
             }
             return this;
         }
 
         /// <summary>
-        /// Waits for all configured rate limiters
+        /// Waits to respect both delay and concurrency rate limits.
+        /// First enforces the minimum delay since the last request, then acquires a concurrency slot.
         /// </summary>
         public async Task WaitAsync()
         {
-            if (_limiters.Count == 0)
-            {
-                return; // No rate limiting configured
-            }
+            // 1. Apply delay-based rate limiting
+            await ApplyDelayAsync();
 
+            // 2. Apply concurrency-based rate limiting
+            await AcquireConcurrencySlotAsync();
+
+            // 3. Apply any additional custom rate limiters
             foreach (var limiter in _limiters)
             {
                 await limiter.WaitAsync();
@@ -50,22 +82,52 @@ namespace WebCrawler.Infrastructure.Services
         }
 
         /// <summary>
-        /// Resets all configured rate limiters
+        /// Enforces minimum delay between consecutive requests
         /// </summary>
-        public void Reset()
+        private async Task ApplyDelayAsync()
         {
-            foreach (var limiter in _limiters)
+            if (_delayMs <= 0)
+                return;
+
+            var now = DateTime.UtcNow;
+            var timeSinceLastRequest = now - _lastRequestTime;
+            var delayNeeded = TimeSpan.FromMilliseconds(_delayMs) - timeSinceLastRequest;
+
+            if (delayNeeded.TotalMilliseconds > 0)
             {
-                limiter.Reset();
+                var delayMs = (int)Math.Ceiling(delayNeeded.TotalMilliseconds);
+                _logger.LogDebug("Rate limit: waiting {DelayMs}ms before next request", delayMs);
+                await Task.Delay(delayMs);
             }
-            _logger.LogDebug("All rate limiters reset");
+
+            _lastRequestTime = DateTime.UtcNow;
         }
 
         /// <summary>
-        /// Releases resources held by all configured rate limiters
+        /// Acquires a concurrency slot, waiting if necessary
+        /// </summary>
+        private async Task AcquireConcurrencySlotAsync()
+        {
+            var availableBefore = _semaphore.CurrentCount;
+
+            if (availableBefore < 1)
+            {
+                _logger.LogDebug("Concurrent request limit reached, waiting for slot to become available");
+            }
+
+            await _semaphore.WaitAsync();
+            _logger.LogDebug("Request slot acquired, {AvailableSlots} slots remaining", _semaphore.CurrentCount);
+        }
+
+        /// <summary>
+        /// Releases the concurrency slot after request completes
         /// </summary>
         public void Release()
         {
+            _semaphore.Release();
+            _logger.LogDebug("Request slot released, {AvailableSlots} slots available", _semaphore.CurrentCount);
+
+            // Also release from custom limiters
             foreach (var limiter in _limiters)
             {
                 limiter.Release();
@@ -73,8 +135,35 @@ namespace WebCrawler.Infrastructure.Services
         }
 
         /// <summary>
-        /// Gets the number of configured limiters
+        /// Resets both delay and concurrency rate limiters
+        /// </summary>
+        public void Reset()
+        {
+            _lastRequestTime = DateTime.UtcNow.AddSeconds(-1);
+            _logger.LogDebug("Rate limiter delay reset");
+
+            // Reset custom limiters
+            foreach (var limiter in _limiters)
+            {
+                limiter.Reset();
+            }
+
+            _logger.LogDebug("All rate limiters reset");
+        }
+
+        /// <summary>
+        /// Gets the number of configured custom limiters
         /// </summary>
         public int LimiterCount => _limiters.Count;
+
+        /// <summary>
+        /// Gets the number of available concurrency slots
+        /// </summary>
+        public int AvailableSlots => _semaphore.CurrentCount;
+
+        /// <summary>
+        /// Gets the configured delay in milliseconds
+        /// </summary>
+        public int DelayMs => _delayMs;
     }
 }

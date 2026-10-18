@@ -1,4 +1,4 @@
-namespace WebCrawler.Configuration;
+namespace WebCrawler.Infrastructure.Configuration;
 
 /// <summary>
 /// Configuration for HTTP client resilience policies

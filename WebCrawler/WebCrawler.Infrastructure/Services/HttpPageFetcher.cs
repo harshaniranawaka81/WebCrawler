@@ -1,6 +1,6 @@
 ﻿using System;
 using Microsoft.Extensions.Logging;
-using WebCrawler.Infrastructure.Interfaces;
+using WebCrawler.Core.Interfaces;
 
 namespace WebCrawler.Infrastructure.Services
 {
@@ -38,11 +38,6 @@ namespace WebCrawler.Infrastructure.Services
             catch (HttpRequestException ex)
             {
                 _logger.LogError(ex, "HTTP request failed for URL: {Url}", uri);
-                throw;
-            }
-            catch (OperationCanceledException ex)
-            {
-                _logger.LogError(ex, "Request timeout for URL: {Url}", uri);
                 throw;
             }
             finally

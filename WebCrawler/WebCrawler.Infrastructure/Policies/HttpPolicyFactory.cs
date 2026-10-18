@@ -2,9 +2,9 @@ using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.CircuitBreaker;
 using Polly.Retry;
-using WebCrawler.Configuration;
+using WebCrawler.Infrastructure.Configuration;
 
-namespace WebCrawler.Core.Policies;
+namespace WebCrawler.Infrastructure.Policies;
 
 /// <summary>
 /// Factory for creating resilience policies for HTTP requests
@@ -19,7 +19,7 @@ public static class HttpPolicyFactory
     /// - HttpRequestException
     /// - OperationCanceledException (timeouts)
     /// - HTTP 5xx errors (server errors)
-    /// 
+    ///
     /// Uses exponential backoff: 1s, 2s, 4s, 8s...
     /// </remarks>
     public static IAsyncPolicy<HttpResponseMessage> CreateRetryPolicy(
@@ -75,18 +75,18 @@ public static class HttpPolicyFactory
                 onBreak: (outcome, timespan) =>
                 {
                     logger?.LogCritical(
-                        "🔴 Circuit breaker opened! {FailureThreshold} failures detected. " +
+                        "Circuit breaker opened! {FailureThreshold} failures detected. " +
                         "Requests will be blocked for {TimeoutSeconds}s.",
                         settings.CircuitBreakerFailureThreshold,
                         timespan.TotalSeconds);
                 },
                 onReset: () =>
                 {
-                    logger?.LogInformation("🟢 Circuit breaker reset. Resuming requests.");
+                    logger?.LogInformation("Circuit breaker reset. Resuming requests.");
                 },
                 onHalfOpen: () =>
                 {
-                    logger?.LogInformation("🟡 Circuit breaker half-open. Testing with next request...");
+                    logger?.LogInformation("Circuit breaker half-open. Testing with next request...");
                 });
     }
 

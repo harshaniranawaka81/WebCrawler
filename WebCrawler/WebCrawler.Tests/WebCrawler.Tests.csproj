@@ -20,4 +20,10 @@
     <Using Include="NUnit.Framework" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../WebCrawler.Core/WebCrawler.Core.csproj" />
+    <ProjectReference Include="../WebCrawler.Infrastructure/WebCrawler.Infrastructure.csproj" />
+    <ProjectReference Include="../WebCrawler/WebCrawler.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
-using WebCrawler.Infrastructure.Interfaces;
+using WebCrawler.Core.Interfaces;
 
 namespace WebCrawler.Infrastructure.Services
 {  

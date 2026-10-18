@@ -1,13 +1,18 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using WebCrawler.Application.Services;
 using WebCrawler.Configuration;
+using WebCrawler.Core.Filters;
 using WebCrawler.Core.Interfaces;
+using WebCrawler.Core.Models;
 using WebCrawler.Core.Services;
-using WebCrawler.Infrastructure.Interfaces;
+using WebCrawler.Infrastructure.Adapters;
+using WebCrawler.Infrastructure.Configuration;
+using WebCrawler.Infrastructure.Filters;
+using WebCrawler.Infrastructure.Policies;
 using WebCrawler.Infrastructure.Services;
-
 namespace WebCrawler.Extensions
 {
     /// <summary>
@@ -40,6 +45,24 @@ namespace WebCrawler.Extensions
         {
             services.AddScoped<IOutputWriter, ConsoleOutputWriter>();
             services.AddScoped<IExceptionHandler, GlobalExceptionHandler>();
+            services.AddScoped<IApplicationInteraction, ConsoleApplicationInteraction>();
+            services.AddScoped<IApplicationOrchestrator, ApplicationOrchestrator>();
+
+            // Add URL filter chain
+            services.AddScoped<IUrlFilterChain>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<UrlFilterChain>>();
+                var robotsChecker = sp.GetRequiredService<IRobotsChecker>();
+                var settings = sp.GetRequiredService<IOptions<WebCrawlerSettings>>();
+
+                var chain = new UrlFilterChain(logger);
+                chain.AddFilter(new SameHostFilter(sp.GetRequiredService<ILogger<SameHostFilter>>()))
+                      .AddFilter(new RobotsTextFilter(robotsChecker, 
+                          sp.GetRequiredService<ILogger<RobotsTextFilter>>()));
+
+                return chain;
+            });
+
             services.AddScoped<ICrawler>(sp => CreateCrawler(sp));
 
             return services;
@@ -51,7 +74,11 @@ namespace WebCrawler.Extensions
             {
                 var options = sp.GetRequiredService<IOptions<WebCrawlerSettings>>();
                 var logger = sp.GetRequiredService<ILogger<FileLinkStorage>>();
-                return new FileLinkStorage(options.Value.VisitedPagesOutputFilePath, logger: logger);
+                return new FileLinkStorage(
+                    options.Value.VisitedPagesOutputFilePath, 
+                    logger: logger, 
+                    flushIntervalLinks: options.Value.StorageFlushIntervalLinks,
+                    writerBufferSize: options.Value.StorageWriterBufferSize);
             });
         }
 
@@ -60,22 +87,15 @@ namespace WebCrawler.Extensions
             services.AddScoped<IRateLimiter>(sp =>
             {
                 var settings = sp.GetRequiredService<IOptions<WebCrawlerSettings>>().Value;
-                var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-                var composite = new CompositeRateLimiter(loggerFactory.CreateLogger<CompositeRateLimiter>());
+                var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger<CompositeRateLimiter>();
 
-                if (settings.DelayBetweenRequestsMs > 0)
-                {
-                    composite.Add(new DelayRateLimiter(
-                        settings.DelayBetweenRequestsMs,
-                        loggerFactory.CreateLogger<DelayRateLimiter>()));
-                }
+                // Create the composite limiter with both delay and concurrency settings
+                var delayMs = settings.DelayBetweenRequestsMs > 0 ? settings.DelayBetweenRequestsMs : 0;
+                var maxConcurrent = settings.MaxConcurrentRequests.HasValue && settings.MaxConcurrentRequests > 0
+                    ? settings.MaxConcurrentRequests.Value
+                    : 1;
 
-                if (settings.MaxConcurrentRequests.HasValue && settings.MaxConcurrentRequests > 0)
-                {
-                    composite.Add(new ConcurrentRequestLimiter(
-                        settings.MaxConcurrentRequests.Value,
-                        loggerFactory.CreateLogger<ConcurrentRequestLimiter>()));
-                }
+                var composite = new CompositeRateLimiter(delayMs, maxConcurrent, logger);
 
                 return composite;
             });
@@ -93,7 +113,7 @@ namespace WebCrawler.Extensions
                 .AddPolicyHandler((sp, _) =>
                 {
                     var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("HttpClientPolicies");
-                    return WebCrawler.Core.Policies.HttpPolicyFactory.CreateCombinedPolicy(httpPolicies, logger);
+                    return HttpPolicyFactory.CreateCombinedPolicy(httpPolicies, logger);
                 });
 
             // Override IPageFetcher with rate limiter injection
@@ -111,7 +131,17 @@ namespace WebCrawler.Extensions
         private static void RegisterLinkExtraction(IServiceCollection services)
         {
             services.AddScoped<ILinkExtractor, HtmlLinkExtractor>();
-            services.AddScoped<IRobotsChecker, RobotsChecker>();
+            services.AddScoped<IRobotsChecker>(sp =>
+            {
+                var pageFetcher = sp.GetRequiredService<IPageFetcher>();
+                var settings = sp.GetRequiredService<IOptions<WebCrawlerSettings>>();
+                var logger = sp.GetRequiredService<ILogger<RobotsChecker>>();
+                return new RobotsChecker(
+                    pageFetcher, 
+                    logger, 
+                    cacheExpirationMinutes: settings.Value.RobotsCacheExpirationMinutes,
+                    robotsFetchTimeoutSeconds: settings.Value.RobotsFetchTimeoutSeconds);
+            });
         }
 
         private static Crawler CreateCrawler(IServiceProvider sp)
@@ -125,15 +155,19 @@ namespace WebCrawler.Extensions
             var options = sp.GetRequiredService<IOptions<WebCrawlerSettings>>();
             var logger = sp.GetRequiredService<ILogger<Crawler>>();
 
+            // Create CrawlerConfiguration from settings
+            var config = new CrawlerConfiguration(
+                maxPagesToCrawl: options.Value.MaxPagesToCrawl,
+                respectRobotsTxt: options.Value.RespectRobotsTxt);
+
             return new Crawler(
                 pageFetcher,
                 linkExtractor,
                 outputWriter,
                 linkStorage,
-                options.Value.MaxPagesToCrawl,
                 exceptionHandler,
                 robotsChecker,
-                options.Value.RespectRobotsTxt,
+                config,
                 logger);
         }
     }

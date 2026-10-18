@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WebCrawler.Core\WebCrawler.Core.csproj" />
     <ProjectReference Include="..\WebCrawler.Infrastructure\WebCrawler.Infrastructure.csproj" />
+    <ProjectReference Include="..\WebCrawler.Application\WebCrawler.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,10 +28,6 @@
     <PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
     <PackageReference Include="Serilog.Settings.Configuration" Version="8.0.1" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Services\" />
   </ItemGroup>
 
   <ItemGroup>
