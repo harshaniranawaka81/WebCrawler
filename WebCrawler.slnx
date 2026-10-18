@@ -3,5 +3,6 @@
   <Project Path="WebCrawler/WebCrawler.Console/WebCrawler.Console.csproj" />
   <Project Path="WebCrawler/WebCrawler.Core/WebCrawler.Core.csproj" />
   <Project Path="WebCrawler/WebCrawler.Infrastructure/WebCrawler.Infrastructure.csproj" />
+  <Project Path="WebCrawler/WebCrawler.IntegrationTests/WebCrawler.IntegrationTests.csproj" />
   <Project Path="WebCrawler/WebCrawler.Tests/WebCrawler.Tests.csproj" />
 </Solution>
