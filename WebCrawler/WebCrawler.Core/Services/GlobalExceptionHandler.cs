@@ -1,32 +1,29 @@
 using System;
+using System.Net.Http;
 using Microsoft.Extensions.Logging;
 using WebCrawler.Core.Interfaces;
 
 namespace WebCrawler.Core.Services
 {
     /// <summary>
-    /// Centralized exception handler for the application
-    /// Handles all exceptions that occur during crawling operations
+    /// Global exception handler for the application
     /// </summary>
     public class GlobalExceptionHandler : IExceptionHandler
     {
         private readonly ILogger<GlobalExceptionHandler> _logger;
 
-        public GlobalExceptionHandler(IOutputWriter outputWriter, ILogger<GlobalExceptionHandler>? logger = null)
+        public GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger)
         {
-            _ = outputWriter ?? throw new ArgumentNullException(nameof(outputWriter));
-            _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance.CreateLogger<GlobalExceptionHandler>();
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         /// <summary>
-        /// Handles exceptions by categorizing them and displaying appropriate messages
+        /// Handles exceptions with logging and formatted console output
         /// </summary>
         public void Handle(Exception exception)
         {
             if (exception == null)
-            {
                 return;
-            }
 
             _logger.LogError(exception, "An exception occurred in the application");
             Console.WriteLine();
@@ -37,8 +34,8 @@ namespace WebCrawler.Core.Services
                     HandleHttpException(httpEx);
                     break;
 
-                case OperationCanceledException cancelEx:
-                    HandleTimeoutException(cancelEx);
+                case OperationCanceledException opEx:
+                    HandleTimeoutException(opEx);
                     break;
 
                 case UriFormatException uriEx:
@@ -82,7 +79,7 @@ namespace WebCrawler.Core.Services
         }
 
         /// <summary>
-        /// Executes an action that returns a result with global exception handling
+        /// Executes an async action with exception handling and result return
         /// </summary>
         public async Task<T?> ExecuteAsync<T>(Func<Task<T>> action, string operationName = "Operation")
         {
@@ -104,27 +101,25 @@ namespace WebCrawler.Core.Services
             }
         }
 
-        #region Exception Type Handlers
-
         private void HandleHttpException(HttpRequestException ex)
         {
             _logger.LogError(ex, "HTTP request exception occurred");
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("❌ NETWORK ERROR");
+            Console.WriteLine("[ERROR] NETWORK ERROR");
             Console.ResetColor();
 
             if (ex.InnerException is TimeoutException)
             {
-                Console.WriteLine("   └─ Request timed out. The server took too long to respond.");
+                Console.WriteLine("   -> Request timed out. The server took too long to respond.");
             }
             else if (ex.StatusCode.HasValue)
             {
-                Console.WriteLine($"   └─ HTTP {(int)ex.StatusCode}: {ex.StatusCode}");
+                Console.WriteLine($"   -> HTTP {(int)ex.StatusCode}: {ex.StatusCode}");
                 Console.WriteLine($"      {GetHttpStatusDescription((int)ex.StatusCode)}");
             }
             else
             {
-                Console.WriteLine($"   └─ Connection failed: {ex.Message}");
+                Console.WriteLine($"   -> Connection failed: {ex.Message}");
             }
         }
 
@@ -132,83 +127,71 @@ namespace WebCrawler.Core.Services
         {
             _logger.LogWarning(ex, "Operation timeout exception occurred");
             Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("⏱️  TIMEOUT ERROR");
+            Console.WriteLine("[TIMEOUT] TIMEOUT ERROR");
             Console.ResetColor();
-            Console.WriteLine("   └─ Request timeout. The operation took too long to complete.");
-            Console.WriteLine("   └─ Check your internet connection or increase the timeout setting.");
+            Console.WriteLine("   -> Request timeout. The operation took too long to complete.");
+            Console.WriteLine("   -> Check your internet connection or increase the timeout setting.");
         }
 
         private void HandleUriException(UriFormatException ex)
         {
             _logger.LogError(ex, "URI format exception occurred");
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("❌ INVALID URL FORMAT");
+            Console.WriteLine("[ERROR] INVALID URL FORMAT");
             Console.ResetColor();
-            Console.WriteLine($"   └─ The URL provided is not in a valid format.");
-            Console.WriteLine($"   └─ Please ensure the URL starts with 'http://' or 'https://'");
+            Console.WriteLine($"   -> The URL provided is not in a valid format.");
+            Console.WriteLine($"   -> Please ensure the URL starts with 'http://' or 'https://'");
         }
 
         private void HandleArgumentException(ArgumentException ex)
         {
             _logger.LogError(ex, "Argument exception occurred for parameter: {ParamName}", ex.ParamName);
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("❌ INVALID ARGUMENT");
+            Console.WriteLine("[ERROR] INVALID ARGUMENT");
             Console.ResetColor();
-            Console.WriteLine($"   └─ {ex.Message}");
-            Console.WriteLine($"   └─ Parameter: {ex.ParamName}");
+            Console.WriteLine($"   -> {ex.Message}");
+            Console.WriteLine($"   -> Parameter: {ex.ParamName}");
         }
 
         private void HandleInvalidOperationException(InvalidOperationException ex)
         {
             _logger.LogWarning(ex, "Invalid operation exception occurred");
             Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("⚠️  OPERATION ERROR");
+            Console.WriteLine("[WARNING] OPERATION ERROR");
             Console.ResetColor();
-            Console.WriteLine($"   └─ {ex.Message}");
+            Console.WriteLine($"   -> {ex.Message}");
         }
 
         private void HandleGenericException(Exception ex)
         {
             _logger.LogCritical(ex, "Unexpected exception occurred");
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("❌ UNEXPECTED ERROR");
+            Console.WriteLine("[CRITICAL] UNEXPECTED ERROR");
             Console.ResetColor();
-            Console.WriteLine($"   └─ {ex.GetType().Name}: {ex.Message}");
 
-            if (!string.IsNullOrEmpty(ex.StackTrace))
+            if (!string.IsNullOrEmpty(ex.Message))
             {
                 Console.ForegroundColor = ConsoleColor.Gray;
-                Console.WriteLine("\n   Stack Trace:");
-                foreach (var line in ex.StackTrace.Split(Environment.NewLine))
-                {
-                    if (!string.IsNullOrWhiteSpace(line))
-                        Console.WriteLine($"   {line}");
-                }
+                Console.WriteLine($"   -> {ex.Message}");
                 Console.ResetColor();
             }
         }
 
-        #endregion
-
-        #region Helper Methods
-
-        private string GetHttpStatusDescription(int statusCode)
+        private static string GetHttpStatusDescription(int statusCode)
         {
             return statusCode switch
             {
-                400 => "Bad Request - The request was malformed",
-                401 => "Unauthorized - Authentication required",
-                403 => "Forbidden - Access denied",
-                404 => "Not Found - The resource does not exist",
-                429 => "Too Many Requests - Rate limit exceeded",
-                500 => "Internal Server Error - Server encountered an error",
-                502 => "Bad Gateway - Invalid response from upstream server",
-                503 => "Service Unavailable - Server is temporarily unavailable",
-                504 => "Gateway Timeout - Upstream server timeout",
+                400 => "Bad Request - The server cannot process the request due to client error.",
+                401 => "Unauthorized - Authentication is required.",
+                403 => "Forbidden - You do not have permission to access this resource.",
+                404 => "Not Found - The requested resource was not found.",
+                429 => "Too Many Requests - Rate limit exceeded.",
+                500 => "Internal Server Error - The server encountered an unexpected condition.",
+                502 => "Bad Gateway - Invalid response from upstream server.",
+                503 => "Service Unavailable - The server is temporarily unavailable.",
+                504 => "Gateway Timeout - The server did not respond in time.",
                 _ => "HTTP Error"
             };
         }
-
-        #endregion
     }
 }

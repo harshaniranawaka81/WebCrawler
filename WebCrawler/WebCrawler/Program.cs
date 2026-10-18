@@ -82,11 +82,11 @@ async Task RunApplicationAsync(IServiceProvider serviceProvider)
         var url = await GetUrlAsync(settings.Value.DefaultUrl);
         if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? validUri))
         {
-            Console.WriteLine("❌ Invalid URL format.");
+            Console.WriteLine("[ERROR] Invalid URL format.");
             Environment.Exit(1);
         }
 
-        Console.WriteLine($"\n🚀 Starting crawl from: {url}\n");
+        Console.WriteLine($"\n[START] Starting crawl from: {url}\n");
         var stats = await exceptionHandler.ExecuteAsync(
             async () => await crawler.CrawlAsync(validUri),
             "Web Crawling");
@@ -108,8 +108,8 @@ async Task RunApplicationAsync(IServiceProvider serviceProvider)
 
 void DisplayWelcome()
 {
-    Console.WriteLine("🕷️  Web Crawler Application");
-    Console.WriteLine("════════════════════════════\n");
+    Console.WriteLine("[SPIDER] Web Crawler Application");
+    Console.WriteLine("====================================\n");
 }
 
 async Task<string> GetUrlAsync(string defaultUrl)
@@ -120,7 +120,7 @@ async Task<string> GetUrlAsync(string defaultUrl)
     if (string.IsNullOrEmpty(url))
     {
         url = defaultUrl;
-        Console.WriteLine($"📌 Using default URL: {url}");
+        Console.WriteLine($"[DEFAULT] Using default URL: {url}");
     }
 
     return url;
@@ -140,7 +140,7 @@ void DisplayResults(WebCrawler.Core.Models.CrawlStatistics? stats, ILinkStorage 
 
 void DisplayVisitedLinksPath(ILinkStorage storage)
 {
-    Console.WriteLine($"✓ Visited links saved to: {storage.GetStoragePath()}\n");
+    Console.WriteLine($"[SUCCESS] Visited links saved to: {storage.GetStoragePath()}\n");
 }
 
 void DisplayLogFilePath()
@@ -155,7 +155,7 @@ void DisplayLogFilePath()
 
     if (!string.IsNullOrEmpty(latestLog))
     {
-        Console.WriteLine($"📋 Crawl logs saved to: {latestLog}\n");
+        Console.WriteLine($"[LOGS] Crawl logs saved to: {latestLog}\n");
     }
 }
 

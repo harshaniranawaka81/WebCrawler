@@ -60,7 +60,7 @@ namespace WebCrawler.Core.Services
                 if (_maxPagesToCrawl.HasValue && _visited.Count >= _maxPagesToCrawl.Value)
                 {
                     _logger.LogInformation("Crawl limit reached ({MaxPages} pages). Stopping crawl.", _maxPagesToCrawl);
-                    Console.WriteLine($"\n⚠️  Crawl limit reached ({_maxPagesToCrawl} pages)");
+                    Console.WriteLine($"\n[WARNING] Crawl limit reached ({_maxPagesToCrawl} pages)");
                     break;
                 }
 
@@ -146,8 +146,8 @@ namespace WebCrawler.Core.Services
                     stats.HttpErrors++;
 
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"⚠️  HTTP error: {current}");
-                    Console.WriteLine($"   └─ {ex.Message}");
+                    Console.WriteLine($"  [HTTP_ERROR] {current}");
+                    Console.WriteLine($"    {ex.Message}");
                     Console.ResetColor();
 
                     if (_exceptionHandler != null)
@@ -162,7 +162,7 @@ namespace WebCrawler.Core.Services
                     stats.TimeoutErrors++;
 
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"⏱️  Timeout: {current}");
+                    Console.WriteLine($"[TIMEOUT] {current}");
                     Console.ResetColor();
 
                     if (_exceptionHandler != null)
@@ -177,8 +177,8 @@ namespace WebCrawler.Core.Services
                     stats.OtherErrors++;
 
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"❌ Failed to crawl: {current}");
-                    Console.WriteLine($"   └─ {ex.GetType().Name}: {ex.Message}");
+                    Console.WriteLine($"[FAILED] {current}");
+                    Console.WriteLine($"   -> {ex.GetType().Name}: {ex.Message}");
                     Console.ResetColor();
 
                     if (_exceptionHandler != null)

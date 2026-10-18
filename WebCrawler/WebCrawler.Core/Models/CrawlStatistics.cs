@@ -81,48 +81,48 @@ namespace WebCrawler.Core.Models
         {
             var sb = new System.Text.StringBuilder();
 
-            sb.AppendLine("\n╔════════════════════════════════════════════════════════════════╗");
-            sb.AppendLine("║                      🕷️  CRAWL STATISTICS 🕷️                       ║");
-            sb.AppendLine("╚════════════════════════════════════════════════════════════════╝\n");
+            sb.AppendLine("\n========================================================================");
+            sb.AppendLine("                    CRAWL STATISTICS REPORT");
+            sb.AppendLine("========================================================================\n");
 
             // Duration and Speed
-            sb.AppendLine("⏱️  TIMING & PERFORMANCE");
+            sb.AppendLine("[TIMING] TIMING & PERFORMANCE");
             sb.AppendLine($"   Duration:              {Duration:hh\\:mm\\:ss}");
             sb.AppendLine($"   Pages/Second:          {PagesPerSecond} pages/sec");
             sb.AppendLine($"   Throughput:            {FormatBytes((long)BytesPerSecond)}/sec\n");
 
             // Pages Summary
-            sb.AppendLine("📄 PAGES PROCESSED");
+            sb.AppendLine("[PAGES] PAGES PROCESSED");
             sb.AppendLine($"   Total Processed:       {PagesProcessed}");
-            sb.AppendLine($"   ✓ Successful:          {PagesSuccessful} ({SuccessRate}%)");
-            sb.AppendLine($"   ✗ Failed:              {PagesFailed}\n");
+            sb.AppendLine($"   [OK] Successful:       {PagesSuccessful} ({SuccessRate}%)");
+            sb.AppendLine($"   [FAIL] Failed:         {PagesFailed}\n");
 
             // Links Summary
-            sb.AppendLine("🔗 LINKS ANALYSIS");
+            sb.AppendLine("[LINKS] LINKS ANALYSIS");
             sb.AppendLine($"   Total Discovered:      {LinksDiscovered}");
             sb.AppendLine($"   Queued for Crawling:   {LinksQueued}");
             sb.AppendLine($"   Skipped:               {LinksSkipped}\n");
 
             // Skip Breakdown
-            sb.AppendLine("⊘ SKIP REASONS");
+            sb.AppendLine("[SKIP] SKIP REASONS");
             sb.AppendLine($"   Already Visited:       {AlreadyVisited}");
             sb.AppendLine($"   Invalid Format:        {InvalidFormat}");
             sb.AppendLine($"   Different Host:        {DifferentHost}");
             sb.AppendLine($"   Robots.txt Blocked:    {DisallowedByRobotsTxt}\n");
 
             // Error Breakdown
-            sb.AppendLine("⚠️  ERRORS");
+            sb.AppendLine("[ERROR] ERRORS");
             sb.AppendLine($"   HTTP Errors:           {HttpErrors}");
             sb.AppendLine($"   Timeout Errors:        {TimeoutErrors}");
             sb.AppendLine($"   Other Errors:          {OtherErrors}");
             sb.AppendLine($"   Total Errors:          {HttpErrors + TimeoutErrors + OtherErrors}\n");
 
             // Data Transfer
-            sb.AppendLine("📊 DATA TRANSFER");
+            sb.AppendLine("[DATA] DATA TRANSFER");
             sb.AppendLine($"   Total Downloaded:      {FormatBytes(TotalBytesDownloaded)}");
             sb.AppendLine($"   Average Page Size:     {FormatBytes(AveragePageSizeBytes)}\n");
 
-            sb.AppendLine("╚════════════════════════════════════════════════════════════════╝");
+            sb.AppendLine("========================================================================");
 
             return sb.ToString();
         }
