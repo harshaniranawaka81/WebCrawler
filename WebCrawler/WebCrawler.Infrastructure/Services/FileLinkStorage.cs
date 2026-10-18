@@ -83,7 +83,7 @@ namespace WebCrawler.Infrastructure.Services
             }
         }
 
-        public async Task FinalizeAsync()
+        public async Task FinalizeAsync(object? statistics = null)
         {
             if (_disposed || _writer == null)
                 return;
@@ -95,6 +95,31 @@ namespace WebCrawler.Infrastructure.Services
                 _writer.WriteLine("=".PadRight(50, '='));
                 _writer.WriteLine($"Crawl completed: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
                 _writer.WriteLine($"Total links recorded: {_linkCount}");
+
+                // Append crawl statistics if provided
+                if (statistics != null)
+                {
+                    _writer.WriteLine();
+                    _writer.WriteLine("=== CRAWL STATISTICS ===");
+
+                    // Use reflection to write all statistics properties
+                    var properties = statistics.GetType().GetProperties();
+                    foreach (var prop in properties)
+                    {
+                        var value = prop.GetValue(statistics);
+                        if (value != null)
+                        {
+                            // Skip complex objects, only write scalar values
+                            if (prop.PropertyType.IsValueType || prop.PropertyType == typeof(string))
+                            {
+                                var displayName = InsertSpacesBeforeCaps(prop.Name);
+                                _writer.WriteLine($"{displayName}: {value}");
+                            }
+                        }
+                    }
+                }
+
+                _writer.WriteLine("=".PadRight(50, '='));
                 await _writer.FlushAsync();
                 await _writer.DisposeAsync();
                 _disposed = true;
@@ -109,6 +134,23 @@ namespace WebCrawler.Infrastructure.Services
             {
                 _semaphore.Release();
             }
+        }
+
+        /// <summary>
+        /// Inserts spaces before capital letters to convert camelCase to spaced words.
+        /// </summary>
+        private static string InsertSpacesBeforeCaps(string text)
+        {
+            var result = new System.Text.StringBuilder();
+            foreach (var c in text)
+            {
+                if (char.IsUpper(c) && result.Length > 0)
+                {
+                    result.Append(' ');
+                }
+                result.Append(c);
+            }
+            return result.ToString();
         }
 
         public string GetStoragePath() => _filePath;

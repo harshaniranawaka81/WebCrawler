@@ -14,9 +14,10 @@ namespace WebCrawler.Infrastructure.Interfaces
         Task RecordLinkAsync(string url);
 
         /// <summary>
-        /// Finalizes the storage and writes any pending data.
+        /// Finalizes the storage and writes any pending data, optionally including crawl statistics.
         /// </summary>
-        Task FinalizeAsync();
+        /// <param name="statistics">Optional crawl statistics to append to the file</param>
+        Task FinalizeAsync(object? statistics = null);
 
         /// <summary>
         /// Gets the path where links are being stored.

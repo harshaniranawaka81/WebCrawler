@@ -1,4 +1,5 @@
 using System;
+using WebCrawler.Core.Models;
 
 namespace WebCrawler.Core.Interfaces
 {
@@ -16,5 +17,10 @@ namespace WebCrawler.Core.Interfaces
         /// Executes an action with global exception handling
         /// </summary>
         Task ExecuteAsync(Func<Task> action, string operationName = "Operation");
+
+        /// <summary>
+        /// Executes an action with global exception handling and result return
+        /// </summary>
+        Task<T?> ExecuteAsync<T>(Func<Task<T>> action, string operationName = "Operation");
     }
 }

@@ -1,9 +1,10 @@
 ﻿using System;
+using WebCrawler.Core.Models;
 
 namespace WebCrawler.Core.Interfaces
 {
     public interface ICrawler
     {
-        Task CrawlAsync(Uri rootUrl);
+        Task<CrawlStatistics> CrawlAsync(Uri rootUrl);
     }
 }

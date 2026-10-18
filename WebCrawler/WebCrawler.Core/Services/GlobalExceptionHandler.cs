@@ -81,6 +81,29 @@ namespace WebCrawler.Core.Services
             }
         }
 
+        /// <summary>
+        /// Executes an action that returns a result with global exception handling
+        /// </summary>
+        public async Task<T?> ExecuteAsync<T>(Func<Task<T>> action, string operationName = "Operation")
+        {
+            try
+            {
+                if (action == null)
+                    throw new ArgumentNullException(nameof(action));
+
+                _logger.LogInformation("Starting operation: {OperationName}", operationName);
+                var result = await action();
+                _logger.LogInformation("Operation completed successfully: {OperationName}", operationName);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Operation failed: {OperationName}", operationName);
+                Handle(ex);
+                throw;
+            }
+        }
+
         #region Exception Type Handlers
 
         private void HandleHttpException(HttpRequestException ex)
