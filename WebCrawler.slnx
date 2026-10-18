@@ -1,9 +1,7 @@
 <Solution>
-  <Folder Name="/WebCrawler/">
-    <Project Path="WebCrawler/WebCrawler.Application/WebCrawler.Application.csproj" />
-    <Project Path="WebCrawler/WebCrawler.Core/WebCrawler.Core.csproj" />
-    <Project Path="WebCrawler/WebCrawler.Infrastructure/WebCrawler.Infrastructure.csproj" />
-    <Project Path="WebCrawler/WebCrawler.Tests/WebCrawler.Tests.csproj" />
-    <Project Path="WebCrawler/WebCrawler/WebCrawler.csproj" />
-  </Folder>
+  <Project Path="WebCrawler/WebCrawler.Application/WebCrawler.Application.csproj" />
+  <Project Path="WebCrawler/WebCrawler.Console/WebCrawler.Console.csproj" />
+  <Project Path="WebCrawler/WebCrawler.Core/WebCrawler.Core.csproj" />
+  <Project Path="WebCrawler/WebCrawler.Infrastructure/WebCrawler.Infrastructure.csproj" />
+  <Project Path="WebCrawler/WebCrawler.Tests/WebCrawler.Tests.csproj" />
 </Solution>

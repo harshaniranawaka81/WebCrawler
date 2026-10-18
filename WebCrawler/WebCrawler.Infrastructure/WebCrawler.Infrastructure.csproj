@@ -7,11 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\WebCrawler.Core\WebCrawler.Core.csproj" />
+    <Folder Include="Models\" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Models\" />
+    <ProjectReference Include="..\WebCrawler.Core\WebCrawler.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

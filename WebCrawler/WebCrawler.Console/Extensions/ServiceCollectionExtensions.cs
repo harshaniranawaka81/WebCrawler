@@ -48,6 +48,13 @@ namespace WebCrawler.Extensions
             services.AddScoped<IApplicationInteraction, ConsoleApplicationInteraction>();
             services.AddScoped<IApplicationOrchestrator, ApplicationOrchestrator>();
 
+            // Bind crawler-specific configuration from WebCrawlerSettings
+            services.AddSingleton(sp =>
+            {
+                var settings = sp.GetRequiredService<IOptions<WebCrawlerSettings>>().Value;
+                return new CrawlerConfiguration(settings.MaxPagesToCrawl, settings.RespectRobotsTxt);
+            });
+
             // Add URL filter chain
             services.AddScoped<IUrlFilterChain>(sp =>
             {
@@ -57,7 +64,7 @@ namespace WebCrawler.Extensions
 
                 var chain = new UrlFilterChain(logger);
                 chain.AddFilter(new SameHostFilter(sp.GetRequiredService<ILogger<SameHostFilter>>()))
-                      .AddFilter(new RobotsTextFilter(robotsChecker, 
+                      .AddFilter(new RobotsTextFilter(robotsChecker,
                           sp.GetRequiredService<ILogger<RobotsTextFilter>>()));
 
                 return chain;
@@ -75,8 +82,8 @@ namespace WebCrawler.Extensions
                 var options = sp.GetRequiredService<IOptions<WebCrawlerSettings>>();
                 var logger = sp.GetRequiredService<ILogger<FileLinkStorage>>();
                 return new FileLinkStorage(
-                    options.Value.VisitedPagesOutputFilePath, 
-                    logger: logger, 
+                    options.Value.VisitedPagesOutputFilePath,
+                    logger: logger,
                     flushIntervalLinks: options.Value.StorageFlushIntervalLinks,
                     writerBufferSize: options.Value.StorageWriterBufferSize);
             });
@@ -137,38 +144,17 @@ namespace WebCrawler.Extensions
                 var settings = sp.GetRequiredService<IOptions<WebCrawlerSettings>>();
                 var logger = sp.GetRequiredService<ILogger<RobotsChecker>>();
                 return new RobotsChecker(
-                    pageFetcher, 
-                    logger, 
+                    pageFetcher,
+                    logger,
                     cacheExpirationMinutes: settings.Value.RobotsCacheExpirationMinutes,
                     robotsFetchTimeoutSeconds: settings.Value.RobotsFetchTimeoutSeconds);
             });
         }
 
-        private static Crawler CreateCrawler(IServiceProvider sp)
+        private static ICrawler CreateCrawler(IServiceProvider sp)
         {
-            var pageFetcher = sp.GetRequiredService<IPageFetcher>();
-            var linkExtractor = sp.GetRequiredService<ILinkExtractor>();
-            var outputWriter = sp.GetRequiredService<IOutputWriter>();
-            var linkStorage = sp.GetRequiredService<ILinkStorage>();
-            var exceptionHandler = sp.GetRequiredService<IExceptionHandler>();
-            var robotsChecker = sp.GetRequiredService<IRobotsChecker>();
-            var options = sp.GetRequiredService<IOptions<WebCrawlerSettings>>();
-            var logger = sp.GetRequiredService<ILogger<Crawler>>();
-
-            // Create CrawlerConfiguration from settings
-            var config = new CrawlerConfiguration(
-                maxPagesToCrawl: options.Value.MaxPagesToCrawl,
-                respectRobotsTxt: options.Value.RespectRobotsTxt);
-
-            return new Crawler(
-                pageFetcher,
-                linkExtractor,
-                outputWriter,
-                linkStorage,
-                exceptionHandler,
-                robotsChecker,
-                config,
-                logger);
+            // Let the DI container resolve the Crawler with its constructor dependencies.
+            return ActivatorUtilities.CreateInstance<Crawler>(sp);
         }
     }
 }

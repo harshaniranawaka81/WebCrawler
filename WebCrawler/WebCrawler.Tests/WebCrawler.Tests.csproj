@@ -17,13 +17,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Using Include="NUnit.Framework" />
+    <ProjectReference Include="..\WebCrawler.Core\WebCrawler.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../WebCrawler.Core/WebCrawler.Core.csproj" />
-    <ProjectReference Include="../WebCrawler.Infrastructure/WebCrawler.Infrastructure.csproj" />
-    <ProjectReference Include="../WebCrawler/WebCrawler.csproj" />
+    <Using Include="NUnit.Framework" />
   </ItemGroup>
 
 </Project>
