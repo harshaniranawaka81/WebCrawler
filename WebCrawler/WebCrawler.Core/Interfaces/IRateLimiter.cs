@@ -11,7 +11,7 @@ public interface IRateLimiter
     /// call Release() when the operation completes.
     /// </summary>
     /// <returns>A task that completes when it's safe to proceed with a request.</returns>
-    Task WaitAsync();
+    Task WaitAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Releases any resources held by the limiter (e.g., semaphore slots).

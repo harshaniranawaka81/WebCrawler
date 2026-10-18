@@ -23,18 +23,22 @@ private readonly List<IUrlFilter> _filters = new List<IUrlFilter>();
         return this;
     }
 
-    public async Task<(bool Passed, string? RejectionReason)> FilterAsync(Uri uri, Uri baseUri)
+    public async Task<(bool Passed, string? RejectionReason)> FilterAsync(Uri uri, Uri baseUri, CancellationToken cancellationToken = default)
     {
         foreach (var filter in _filters)
         {
             try
             {
-                var shouldInclude = await filter.ShouldIncludeAsync(uri, baseUri);
+                var shouldInclude = await filter.ShouldIncludeAsync(uri, baseUri, cancellationToken);
 
                 if (!shouldInclude)
                 {
                     return (false, filter.FilterName);
                 }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {

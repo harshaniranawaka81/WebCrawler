@@ -63,7 +63,7 @@ public class RobotsTextFilterTests
             _throwOnCheck = throwOnCheck;
         }
 
-        public Task<bool> IsAllowedAsync(Uri uri)
+        public Task<bool> IsAllowedAsync(Uri uri, CancellationToken cancellationToken = default)
         {
             if (_throwOnCheck)
             {
@@ -73,7 +73,7 @@ public class RobotsTextFilterTests
             return Task.FromResult(_allowed);
         }
 
-        public Task<object?> GetRulesAsync(Uri uri) => Task.FromResult<object?>(null);
+        public Task<object?> GetRulesAsync(Uri uri, CancellationToken cancellationToken = default) => Task.FromResult<object?>(null);
 
         public void ClearCache()
         {

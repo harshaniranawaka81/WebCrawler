@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using WebCrawler.Configuration;
+using WebCrawler.Core.Filters;
 using WebCrawler.Core.Helpers;
 using WebCrawler.Core.Interfaces;
 using WebCrawler.Core.Models;
@@ -10,8 +12,9 @@ using WebCrawler.Core.Models;
 namespace WebCrawler.Core.Services
 {
     /// <summary>
-    /// Main web crawler service that performs breadth-first search crawling.
+    /// Main web crawler service that crawls pages concurrently using a pool of workers.
     /// Fetches pages, extracts links, respects robots.txt, and tracks statistics.
+    /// The number of workers is MaxConcurrentRequests (minimum 1).
     /// </summary>
     public class Crawler : ICrawler
     {
@@ -20,11 +23,12 @@ namespace WebCrawler.Core.Services
         private readonly IOutputWriter _outputWriter;
         private readonly ILinkStorage? _linkStorage;
         private readonly IExceptionHandler? _exceptionHandler;
-        private readonly IRobotsChecker? _robotsChecker;
+        private readonly IUrlFilterChain _filterChain;
         private readonly WebCrawlerSettings _config;
         private readonly ILogger<Crawler> _logger;
 
         private readonly ConcurrentDictionary<string, byte> _visited = new();
+        private readonly object _visitedGate = new();
 
         /// <summary>
         /// Initializes a new instance of the Crawler class.
@@ -34,7 +38,7 @@ namespace WebCrawler.Core.Services
         /// <param name="outputWriter">Required service to write crawl results</param>
         /// <param name="linkStorage">Optional service to persist visited links</param>
         /// <param name="exceptionHandler">Optional service to handle exceptions</param>
-        /// <param name="robotsChecker">Optional service to check robots.txt rules</param>
+        /// <param name="filterChain">Required filter chain deciding which discovered links are followed (same host, robots.txt, ...)</param>
         /// <param name="config">Crawler configuration settings</param>
         /// <param name="logger">Optional logger for diagnostic information</param>
         public Crawler(
@@ -43,7 +47,7 @@ namespace WebCrawler.Core.Services
             IOutputWriter outputWriter,
             ILinkStorage? linkStorage,
             IExceptionHandler? exceptionHandler,
-            IRobotsChecker? robotsChecker,
+            IUrlFilterChain filterChain,
             WebCrawlerSettings config,
             ILogger<Crawler>? logger = null)
         {
@@ -52,143 +56,238 @@ namespace WebCrawler.Core.Services
             _outputWriter = outputWriter ?? throw new ArgumentNullException(nameof(outputWriter));
             _linkStorage = linkStorage;
             _exceptionHandler = exceptionHandler;
-            _robotsChecker = robotsChecker;
+            _filterChain = filterChain ?? throw new ArgumentNullException(nameof(filterChain));
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance.CreateLogger<Crawler>();
         }
 
         /// <summary>
-        /// Performs a breadth-first search crawl starting from the given root URL.
+        /// Crawls the site starting from the given root URL using concurrent workers.
         /// </summary>
         /// <param name="root">The root URL to start crawling from</param>
         /// <returns>Crawl statistics including pages processed, links found, and errors</returns>
-        public async Task<CrawlStatistics> CrawlAsync(Uri root)
+        public async Task<CrawlStatistics> CrawlAsync(Uri root, CancellationToken cancellationToken = default)
         {
             var stats = new CrawlStatistics { StartTime = DateTime.UtcNow };
-            var queue = new ConcurrentQueue<Uri>();
+            var statsLock = new object();
+            var ioGate = new SemaphoreSlim(1, 1);
+            var channel = Channel.CreateUnbounded<Uri>();
 
-            queue.Enqueue(root);
-            _logger.LogInformation("Starting crawl from root URL: {RootUrl}", root);
+            // Number of URLs queued or being processed; the crawl is complete when it reaches zero.
+            int pending = 0;
+            int discarded = 0;
+            bool limitReached = false;
 
-            try
+            var workerCount = _config.MaxConcurrentRequests is > 0 ? _config.MaxConcurrentRequests.Value : 1;
+
+            void UpdateStats(Action<CrawlStatistics> update)
             {
-                while (queue.TryDequeue(out var current))
+                lock (statsLock)
                 {
-                    // Check if max pages limit is reached
-                    if (_config.MaxPagesToCrawl.HasValue && _visited.Count >= _config.MaxPagesToCrawl.Value)
-                    {
-                        _logger.LogInformation("Crawl limit reached ({MaxPages} pages). Stopping crawl.", _config.MaxPagesToCrawl);
-                        break;
-                    }
+                    update(stats);
+                }
+            }
 
-                    // Check if already visited
-                    if (!_visited.TryAdd(UrlHelper.Normalize(current), 0))
-                    {
-                        _logger.LogDebug("URL already visited, skipping: {Url}", current);
-                        stats.AlreadyVisited++;
-                        stats.LinksSkipped++;
-                        continue;
-                    }
+            void Enqueue(Uri uri)
+            {
+                Interlocked.Increment(ref pending);
+                channel.Writer.TryWrite(uri);
+            }
 
-                    stats.PagesProcessed++;
+            _logger.LogInformation("Starting crawl from root URL: {RootUrl} with {Workers} worker(s)", root, workerCount);
+            Enqueue(root);
 
+            async Task WorkerAsync()
+            {
+                await foreach (var current in channel.Reader.ReadAllAsync(cancellationToken))
+                {
                     try
                     {
-                        _logger.LogInformation("Processing page {PageNumber}: {Url}", stats.PagesProcessed, current);
-                        var html = await _pageFetcher.GetContentAsync(current);
-
-                        // Track successful page
-                        stats.PagesSuccessful++;
-                        stats.TotalBytesDownloaded += html.Length;
-
-                        var discoveredLinks = new List<string>();
-
-                        foreach (var link in _linkExtractor.ExtractLinks(html))
+                        if (Volatile.Read(ref limitReached))
                         {
-                            // Check if link is valid URI format
-                            if (!Uri.TryCreate(current, link, out var uri))
+                            Interlocked.Increment(ref discarded);
+                        }
+                        else
+                        {
+                            await ProcessPageAsync(current);
+                        }
+                    }
+                    finally
+                    {
+                        if (Interlocked.Decrement(ref pending) == 0)
+                        {
+                            channel.Writer.TryComplete();
+                        }
+                    }
+                }
+            }
+
+            async Task ProcessPageAsync(Uri current)
+            {
+                bool limitHit = false;
+                bool alreadyVisited = false;
+
+                lock (_visitedGate)
+                {
+                    if (_config.MaxPagesToCrawl.HasValue && _visited.Count >= _config.MaxPagesToCrawl.Value)
+                    {
+                        limitHit = true;
+                    }
+                    else if (!_visited.TryAdd(UrlHelper.Normalize(current), 0))
+                    {
+                        alreadyVisited = true;
+                    }
+                }
+
+                if (limitHit)
+                {
+                    _logger.LogInformation("Crawl limit reached ({MaxPages} pages). Stopping crawl.", _config.MaxPagesToCrawl);
+                    Volatile.Write(ref limitReached, true);
+                    Interlocked.Increment(ref discarded);
+                    return;
+                }
+
+                if (alreadyVisited)
+                {
+                    _logger.LogDebug("URL already visited, skipping: {Url}", current);
+                    UpdateStats(s =>
+                    {
+                        s.AlreadyVisited++;
+                        s.LinksSkipped++;
+                    });
+                    return;
+                }
+
+                int pageNumber = 0;
+                UpdateStats(s => pageNumber = ++s.PagesProcessed);
+
+                try
+                {
+                    _logger.LogInformation("Processing page {PageNumber}: {Url}", pageNumber, current);
+                    var html = await _pageFetcher.GetContentAsync(current, cancellationToken);
+
+                    UpdateStats(s =>
+                    {
+                        s.PagesSuccessful++;
+                        s.TotalBytesDownloaded += html.Length;
+                    });
+
+                    var discoveredLinks = new List<string>();
+
+                    foreach (var link in _linkExtractor.ExtractLinks(html))
+                    {
+                        if (!Uri.TryCreate(current, link, out var uri))
+                        {
+                            _logger.LogDebug("Invalid URI format for link: {Link}", link);
+                            UpdateStats(s =>
                             {
-                                _logger.LogDebug("Invalid URI format for link: {Link}", link);
-                                stats.InvalidFormat++;
-                                stats.LinksSkipped++;
-                                continue;
-                            }
-
-                            // Check if same host
-                            if (!UrlHelper.IsSameHost(root, uri))
-                            {
-                                _logger.LogDebug("Link points to different host, skipping: {Url}", uri);
-                                stats.DifferentHost++;
-                                stats.LinksSkipped++;
-                                continue;
-                            }
-
-                            // Check robots.txt if enabled
-                            if (_config.RespectRobotsTxt && _robotsChecker != null)
-                            {
-                                var isAllowed = await _robotsChecker.IsAllowedAsync(uri);
-                                if (!isAllowed)
-                                {
-                                    _logger.LogDebug("URL disallowed by robots.txt, skipping: {Url}", uri);
-                                    stats.DisallowedByRobotsTxt++;
-                                    stats.LinksSkipped++;
-                                    continue;
-                                }
-                            }
-
-                            // Link will be queued
-                            discoveredLinks.Add(uri.AbsoluteUri);
-                            stats.LinksDiscovered++;
-                            stats.LinksQueued++;
-
-                            queue.Enqueue(uri);
+                                s.InvalidFormat++;
+                                s.LinksSkipped++;
+                            });
+                            continue;
                         }
 
-                        _logger.LogInformation("Found {LinkCount} valid links on page: {Url}", discoveredLinks.Count, current);
+                        var (passed, rejectedBy) = await _filterChain.FilterAsync(uri, root, cancellationToken);
+                        if (!passed)
+                        {
+                            _logger.LogDebug("Link rejected by {Filter} filter, skipping: {Url}", rejectedBy, uri);
+                            UpdateStats(s =>
+                            {
+                                switch (rejectedBy)
+                                {
+                                    case UrlFilterNames.SameHost:
+                                        s.DifferentHost++;
+                                        break;
+                                    case UrlFilterNames.RobotsText:
+                                        s.DisallowedByRobotsTxt++;
+                                        break;
+                                }
 
-                        // Use IOutputWriter to display results
+                                s.LinksSkipped++;
+                            });
+                            continue;
+                        }
+
+                        discoveredLinks.Add(uri.AbsoluteUri);
+                        UpdateStats(s =>
+                        {
+                            s.LinksDiscovered++;
+                            s.LinksQueued++;
+                        });
+
+                        Enqueue(uri);
+                    }
+
+                    _logger.LogInformation("Found {LinkCount} valid links on page: {Url}", discoveredLinks.Count, current);
+
+                    await ioGate.WaitAsync(cancellationToken);
+                    try
+                    {
                         _outputWriter.Write(current, discoveredLinks.Select(l => new Uri(l)).ToList());
 
-                        // Record visited link to storage if available
                         if (_linkStorage != null)
                         {
                             await _linkStorage.RecordLinkAsync(current.AbsoluteUri);
                             _logger.LogDebug("Recorded visited link to storage: {Url}", current);
                         }
                     }
-                    catch (HttpRequestException ex)
+                    finally
                     {
-                        _logger.LogWarning(ex, "HTTP request failed for URL: {Url}", current);
-                        stats.PagesFailed++;
-                        stats.HttpErrors++;
-                    }
-                    catch (OperationCanceledException ex)
-                    {
-                        _logger.LogWarning(ex, "Request timeout for URL: {Url}", current);
-                        stats.PagesFailed++;
-                        stats.TimeoutErrors++;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to crawl page: {Url}", current);
-                        stats.PagesFailed++;
-                        stats.OtherErrors++;
+                        ioGate.Release();
                     }
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                                {
+                                    throw;
+                                }
+                                catch (HttpRequestException ex)
+                {
+                    _logger.LogWarning(ex, "HTTP request failed for URL: {Url}", current);
+                    UpdateStats(s =>
+                    {
+                        s.PagesFailed++;
+                        s.HttpErrors++;
+                    });
+                }
+                catch (OperationCanceledException ex)
+                {
+                    _logger.LogWarning(ex, "Request timeout for URL: {Url}", current);
+                    UpdateStats(s =>
+                    {
+                        s.PagesFailed++;
+                        s.TimeoutErrors++;
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to crawl page: {Url}", current);
+                    UpdateStats(s =>
+                    {
+                        s.PagesFailed++;
+                        s.OtherErrors++;
+                    });
+                }
+            }
+
+            try
+            {
+                var workers = Enumerable.Range(0, workerCount)
+                    .Select(_ => Task.Run(WorkerAsync))
+                    .ToArray();
+
+                await Task.WhenAll(workers);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("Crawl cancelled. Returning partial statistics");
             }
             finally
             {
-                // IMPORTANT: Clean up queue to prevent memory leaks
-                // If max pages was reached, remaining URLs stay in queue
-                int discardedCount = 0;
-                while (queue.TryDequeue(out _))
-                {
-                    discardedCount++;
-                }
+                channel.Writer.TryComplete();
 
-                if (discardedCount > 0)
+                if (discarded > 0)
                 {
-                    _logger.LogInformation("Cleared {DiscardedCount} remaining queued URLs from memory", discardedCount);
+                    _logger.LogInformation("Discarded {DiscardedCount} remaining queued URLs", discarded);
                 }
 
                 // Clear visited dictionary for next crawl if instance is reused

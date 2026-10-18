@@ -25,13 +25,16 @@ flowchart TD
     IntegrationTests --> Application
     IntegrationTests --> Infrastructure
     IntegrationTests --> Console
+    IntegrationTests --> Application
+    IntegrationTests --> Infrastructure
+    IntegrationTests --> Console
 ```
 
 ### Crawl pipeline
 
 ```mermaid
 flowchart TD
-    Start([Root URL]) --> Queue[Dequeue URL]
+    Start([Root URL]) --> Queue[Workers read Channel of Uri<br/>MaxConcurrentRequests workers]
     Queue --> MaxCheck{MaxPagesToCrawl<br/>reached?}
     MaxCheck -- Yes --> Done([Return CrawlStatistics])
     MaxCheck -- No --> Visited{Already visited?}
@@ -39,11 +42,11 @@ flowchart TD
     Visited -- No --> Fetch[IPageFetcher.GetContentAsync<br/>via IRateLimiter]
     Fetch -- Failure --> Failed[Record failure] --> Queue
     Fetch -- Success --> Extract[ILinkExtractor.ExtractLinks]
-    Extract --> LinkCheck{Valid URI and<br/>same host?}
+    Extract --> LinkCheck{Valid URI?}
     LinkCheck -- No --> Skip[Record skipped] --> Extract
-    LinkCheck -- Yes --> Robots{Allowed by<br/>robots.txt?}
-    Robots -- No --> Skip
-    Robots -- Yes --> Enqueue[Enqueue link] --> Extract
+    LinkCheck -- Yes --> Chain{IUrlFilterChain:<br/>SameHostFilter,<br/>RobotsTextFilter if enabled}
+    Chain -- Rejected --> Skip
+    Chain -- Passed --> Enqueue[Write to Channel] --> Extract
     Fetch -. page recorded .-> Storage[ILinkStorage / IOutputWriter]
     Queue -. queue empty .-> Done
 ```
@@ -74,7 +77,8 @@ flowchart TB
     Orchestrator --> Crawler
     Crawler --> Http
     Crawler --> Parsing
-    Crawler --> Robots
+    Crawler --> Filters[IUrlFilterChain]
+    Filters --> Robots
     Crawler --> Storage
     Http --> RateLimit
     Robots --> Http
@@ -95,16 +99,16 @@ flowchart TB
 
 ### Crawl pipeline
 
-`Crawler` (`WebCrawler.Core/Services/Crawler.cs`) implements `ICrawler`. It performs a breadth-first crawl. For each queued URL it:
+It crawls concurrently. Root and discovered URLs go through an unbounded `Channel<Uri>` read by `MaxConcurrentRequests` workers. A pending counter completes the channel when no work is queued or in flight. Statistics updates, visited/max-page admission, and output/storage writes are synchronized. Page output order is therefore nondeterministic. For each URL a worker:
 
-1. Stops if `MaxPagesToCrawl` has been reached, and skips URLs already visited (normalized with `UrlHelper`).
+1. Atomically admits the URL: it stops if `MaxPagesToCrawl` has been reached, and skips URLs already visited (normalized with `UrlHelper`).
 2. Fetches the page with `IPageFetcher`. The fetcher applies `IRateLimiter` before each request.
-3. Extracts links with `ILinkExtractor`. Each link is resolved against the current page and checked for a valid URI format and same host.
-4. Checks `IRobotsChecker` for each link when `RespectRobotsTxt` is enabled.
+Each link is resolved against the current page and checked for a valid URI format.
+4. Runs each link through `IUrlFilterChain`, which holds `SameHostFilter` and, when `RespectRobotsTxt` is enabled, `RobotsTextFilter`. The rejection reason is mapped to `DifferentHost` or `DisallowedByRobotsTxt` (`UrlFilterNames`).
 5. Enqueues eligible links and records visited links through `ILinkStorage`. Output goes through `IOutputWriter`.
 6. Tracks progress in `CrawlStatistics`.
 
-The `IUrlFilterChain` and its filters (`UriFormatFilter`, `SameHostFilter`, `UniqueUrlFilter`, `RobotsTextFilter`) are available as reusable components, but `Crawler` currently applies the same checks inline rather than through the chain.
+URI parsing and atomic visited/max-page admission remain in `Crawler`. `CompositeRateLimiter`
 
 ### Interfaces (Core)
 
@@ -116,14 +120,12 @@ The `IUrlFilterChain` and its filters (`UriFormatFilter`, `SameHostFilter`, `Uni
 
 ### Filters
 
-- `UriFormatFilter`: rejects malformed URIs.
 - `SameHostFilter`: restricts crawling to the starting host.
-- `UniqueUrlFilter`: prevents revisiting a URL.
-- `RobotsTextFilter` (Infrastructure): applies robots.txt rules.
+- `RobotsTextFilter`
 
 ### Exceptions
 
-All custom exceptions derive from `WebCrawlerException`. Specific types include `ConfigurationException`, `PageFetchException`, `LinkExtractionException`, `RobotsException`, `StorageException`, and `UrlFilterException`.
+Specific types include `ConfigurationException`.
 
 ## Infrastructure Components
 
@@ -136,10 +138,10 @@ All custom exceptions derive from `WebCrawlerException`. Specific types include 
 ## Application Flow
 
 1. `Program` (Console) loads `appsettings.json`, configures Serilog, and builds a `ServiceCollection` with the settings, `AddCrawlerInfrastructure`, and `AddCrawlerCore`.
-2. `Program` resolves `IApplicationOrchestrator` and calls `RunAsync`.
+2. `Program` creates a `CancellationTokenSource` tied to Ctrl+C (`Console.CancelKeyPress`), resolves `IApplicationOrchestrator`, and calls `RunAsync(token)`. The token flows through the crawler, fetcher, rate limiter, filter chain, and robots checker.
 3. `ApplicationOrchestrator` validates configuration through `ConfigurationValidator`, prompts for a URL through `IApplicationInteraction`, and validates the URL format.
 4. `ApplicationOrchestrator` runs `Crawler` inside `IExceptionHandler`, displays results, and finalizes storage in a `finally` block.
-5. Unhandled errors are reported through `IExceptionHandler`. Exit code is `1` on failure and `0` on success.
+Exit code is `0` on success, `1` on failure, and `130` when the user cancels with Ctrl+C.
 
 ## Configuration
 
@@ -154,7 +156,7 @@ Settings are bound from `appsettings.json` into `WebCrawlerSettings` (Core). Key
 
 ## Testing Strategy
 
-- **Unit tests** (`WebCrawler.Tests`): isolate each class with mocks and fakes. They cover filters, parsers, storage, rate limiting, exception handling, and configuration validation.
+They cover filters, parsers, storage, rate limiting (including concurrent callers), `HttpPageFetcher`, crawler concurrency, statistics and error handling, exception handling, and configuration validation.
 - **Integration tests** (`WebCrawler.IntegrationTests`): start a local ASP.NET Core server on `127.0.0.1:0` with fixed pages and a `robots.txt`. They use the real DI registrations, so they run offline and deterministically.
 
 ## Build and Run

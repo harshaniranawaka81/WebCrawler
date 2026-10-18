@@ -119,7 +119,7 @@ public class ApplicationOrchestratorTests
     {
         public List<Uri> CrawledUrls { get; } = new();
 
-        public Task<CrawlStatistics> CrawlAsync(Uri rootUrl)
+        public Task<CrawlStatistics> CrawlAsync(Uri rootUrl, CancellationToken cancellationToken = default)
         {
             CrawledUrls.Add(rootUrl);
             return Task.FromResult<CrawlStatistics>(null!);

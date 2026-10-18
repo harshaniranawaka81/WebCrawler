@@ -20,5 +20,5 @@ public interface IUrlFilter
     /// <remarks>
     /// If this method returns false, no further filters in the chain will be called for this URL.
     /// </remarks>
-    Task<bool> ShouldIncludeAsync(Uri uri, Uri baseUri);
+    Task<bool> ShouldIncludeAsync(Uri uri, Uri baseUri, CancellationToken cancellationToken = default);
 }

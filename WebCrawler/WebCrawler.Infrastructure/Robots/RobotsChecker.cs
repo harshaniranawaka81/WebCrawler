@@ -48,11 +48,11 @@ namespace WebCrawler.Infrastructure.Robots
         /// <summary>
         /// Checks if a URL is allowed by the site's robots.txt
         /// </summary>
-        public async Task<bool> IsAllowedAsync(Uri uri)
+        public async Task<bool> IsAllowedAsync(Uri uri, CancellationToken cancellationToken = default)
         {
             try
             {
-                var rules = await GetRobotRulesAsync(uri);
+                var rules = await GetRobotRulesAsync(uri, cancellationToken);
                 if (rules == null)
                 {
                     // No robots.txt or it's empty, allow crawling
@@ -68,6 +68,10 @@ namespace WebCrawler.Infrastructure.Robots
                 }
 
                 return allowed;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -85,15 +89,15 @@ namespace WebCrawler.Infrastructure.Robots
         /// <summary>
         /// Gets the current robots.txt rules for the domain.
         /// </summary>
-        public async Task<object?> GetRulesAsync(Uri uri)
+        public async Task<object?> GetRulesAsync(Uri uri, CancellationToken cancellationToken = default)
         {
-            return await GetRobotRulesAsync(uri);
+            return await GetRobotRulesAsync(uri, cancellationToken);
         }
 
         /// <summary>
         /// Gets the robots.txt rules for a domain, with caching and expiration support
         /// </summary>
-        private async Task<RobotsParser.RobotRules?> GetRobotRulesAsync(Uri uri)
+        private async Task<RobotsParser.RobotRules?> GetRobotRulesAsync(Uri uri, CancellationToken cancellationToken)
         {
             var domain = uri.Host;
 
@@ -132,7 +136,7 @@ namespace WebCrawler.Infrastructure.Robots
                 var robotsUri = new Uri(uri, RobotsPath);
                 _logger.LogDebug("Fetching robots.txt from: {RobotsUrl}", robotsUri);
 
-                var robotsContent = await _pageFetcher.GetContentAsync(robotsUri);
+                var robotsContent = await _pageFetcher.GetContentAsync(robotsUri, cancellationToken);
 
                 if (string.IsNullOrWhiteSpace(robotsContent))
                 {
@@ -160,7 +164,7 @@ namespace WebCrawler.Infrastructure.Robots
 
                 return rules;
             }
-            catch (OperationCanceledException ex)
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
                 _logger.LogWarning(
                     ex,
@@ -174,6 +178,10 @@ namespace WebCrawler.Infrastructure.Robots
                     CachedAt = DateTime.UtcNow
                 };
                 return null;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {

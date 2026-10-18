@@ -6,9 +6,9 @@ WebCrawler is a .NET 10 console application that crawls a website breadth-first 
 
 ### Crawling
 
-- **Breadth-first crawl** from a user-supplied root URL.
+- **Concurrent crawl** from a user-supplied root URL, using `MaxConcurrentRequests` workers. Page output order is nondeterministic.
 - **Default URL.** If the user enters nothing, the crawl starts from `DefaultUrl` in `appsettings.json`.
-- **Same-host scope.** Only links on the root's host are followed. Other hosts are counted as skipped.
+- **Same-host scope.** Enforced by `SameHostFilter` in the URL filter chain. Other hosts are counted as skipped.
 - **Link normalization.** Duplicate pages are detected after normalization, so the same page is not crawled twice. Query parameters are included or ignored based on `NormalizeUrlsIncludeQueryParameters`.
 - **Relative link resolution.** Links are resolved against the page they appear on.
 - **Page limit.** `MaxPagesToCrawl` stops the crawl after a set number of pages. Leave it unset for no limit.
@@ -16,7 +16,7 @@ WebCrawler is a .NET 10 console application that crawls a website breadth-first 
 
 ### Robots.txt Compliance
 
-- **Optional.** Controlled by `RespectRobotsTxt`.
+- **Optional.** `RespectRobotsTxt` controls whether `RobotsTextFilter` is added to the filter chain.
 - **Per-host rules.** `/robots.txt` is fetched once per host and cached for `RobotsCacheExpirationMinutes`.
 - **Fetch timeout.** `RobotsFetchTimeoutSeconds` limits how long a robots.txt fetch can take.
 - **Fail-open.** If robots.txt cannot be fetched, links are allowed.
@@ -25,7 +25,8 @@ WebCrawler is a .NET 10 console application that crawls a website breadth-first 
 ### Rate Limiting and Concurrency
 
 - **Request delay.** `DelayBetweenRequestsMs` sets the minimum time between requests.
-- **Concurrency limit.** `MaxConcurrentRequests` caps simultaneous requests.
+- **Concurrency limit.** `MaxConcurrentRequests` sets the worker count and caps simultaneous requests. Values below 1 fall back to one worker.
+- **Thread-safe delay.** Concurrent callers are spaced by the configured delay.
 
 ### HTTP Resilience
 
@@ -77,10 +78,12 @@ On startup, the application validates the settings and reports every error befor
 |---|---|
 | `0` | Crawl completed |
 | `1` | Invalid configuration, invalid URL, unhandled error, or fatal startup error |
+| `130` | Crawl cancelled by the user with Ctrl+C |
 
 - Invalid URLs are rejected before the crawl starts.
 - Page-level errors do not stop the crawl. They are counted in the report.
-- Storage is always finalized, even if the crawl fails.
+A cancelled run still displays partial statistics on screen and writes the statistics footer to the visited-links file.
+- **Ctrl+C** cancels the crawl cooperatively: in-flight requests, rate-limiter waits, and robots checks stop promptly.
 
 ## User Interaction
 

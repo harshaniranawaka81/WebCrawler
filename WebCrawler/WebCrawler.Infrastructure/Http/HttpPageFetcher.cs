@@ -20,18 +20,18 @@ namespace WebCrawler.Infrastructure.Http
             _rateLimiter = rateLimiter;
         }
 
-        public async Task<string> GetContentAsync(Uri uri)
+        public async Task<string> GetContentAsync(Uri uri, CancellationToken cancellationToken = default)
         {
             // Apply rate limiting before making the request
             if (_rateLimiter != null)
             {
-                await _rateLimiter.WaitAsync();
+                await _rateLimiter.WaitAsync(cancellationToken);
             }
 
             try
             {
                 _logger.LogDebug("Fetching content from: {Url}", uri);
-                var content = await _client.GetStringAsync(uri);
+                var content = await _client.GetStringAsync(uri, cancellationToken);
                 _logger.LogDebug("Successfully fetched {ContentLength} bytes from {Url}", content.Length, uri);
                 return content;
             }

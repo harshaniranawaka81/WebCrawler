@@ -47,6 +47,41 @@ public class CompositeRateLimiterTests
     }
 
     [Test]
+    public void WaitAsync_ThrowsWhenCancelledWhileWaitingForSlot()
+    {
+        var limiter = new CompositeRateLimiter(0, 1);
+        limiter.WaitAsync().GetAwaiter().GetResult();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        Assert.That(async () => await limiter.WaitAsync(cts.Token), Throws.InstanceOf<OperationCanceledException>());
+    }
+
+    [Test]
+    public void WaitAsync_ThrowsWhenCancelledDuringDelay()
+    {
+        var limiter = new CompositeRateLimiter(5000, 5);
+        limiter.WaitAsync().GetAwaiter().GetResult();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        Assert.That(async () => await limiter.WaitAsync(cts.Token), Throws.InstanceOf<OperationCanceledException>());
+    }
+
+    [Test]
+    public async Task WaitAsync_SpacesOutConcurrentCallers()
+    {
+        const int delayMs = 100;
+        const int callers = 5;
+        var limiter = new CompositeRateLimiter(delayMs, callers);
+
+        var stopwatch = Stopwatch.StartNew();
+        await Task.WhenAll(Enumerable.Range(0, callers).Select(_ => Task.Run(() => limiter.WaitAsync())));
+        stopwatch.Stop();
+
+        // The first caller goes immediately; the remaining four are spaced by the delay.
+        Assert.That(stopwatch.ElapsedMilliseconds, Is.GreaterThanOrEqualTo((callers - 1) * delayMs - 30));
+    }
+
+    [Test]
     public async Task WaitAsync_EnforcesMinimumDelayBetweenRequests()
     {
         const int delayMs = 200;

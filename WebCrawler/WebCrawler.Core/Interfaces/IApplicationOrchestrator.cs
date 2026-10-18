@@ -10,5 +10,5 @@ public interface IApplicationOrchestrator
     /// Runs the entire application workflow asynchronously.
     /// </summary>
     /// <returns>Exit code: 0 for success, non-zero for failure.</returns>
-    Task<int> RunAsync();
+    Task<int> RunAsync(CancellationToken cancellationToken = default);
 }

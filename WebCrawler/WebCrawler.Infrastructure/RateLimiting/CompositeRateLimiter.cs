@@ -14,7 +14,8 @@ namespace WebCrawler.Infrastructure.RateLimiting
     {
         // Delay-based rate limiting
         private readonly int _delayMs;
-        private DateTime _lastRequestTime;
+        private readonly object _delayLock = new();
+        private DateTime _nextAllowedTime;
 
         // Concurrency-based rate limiting
         private readonly SemaphoreSlim _semaphore;
@@ -35,10 +36,9 @@ namespace WebCrawler.Infrastructure.RateLimiting
             ILogger<CompositeRateLimiter>? logger = null)
         {
             _delayMs = Math.Max(0, delayMs);
-            _lastRequestTime = DateTime.UtcNow.AddSeconds(-1);
+            _nextAllowedTime = DateTime.UtcNow;
 
-            if (maxConcurrentRequests <= 0)
-                throw new ArgumentException("Max concurrent requests must be greater than 0", nameof(maxConcurrentRequests));
+            if (maxConcurrentRequests <= 0)                throw new ArgumentException("Max concurrent requests must be greater than 0", nameof(maxConcurrentRequests));
 
             _semaphore = new SemaphoreSlim(maxConcurrentRequests, maxConcurrentRequests);
             _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance
@@ -66,47 +66,51 @@ namespace WebCrawler.Infrastructure.RateLimiting
         /// Waits to respect both delay and concurrency rate limits.
         /// First enforces the minimum delay since the last request, then acquires a concurrency slot.
         /// </summary>
-        public async Task WaitAsync()
+        public async Task WaitAsync(CancellationToken cancellationToken = default)
         {
             // 1. Apply delay-based rate limiting
-            await ApplyDelayAsync();
+            await ApplyDelayAsync(cancellationToken);
 
             // 2. Apply concurrency-based rate limiting
-            await AcquireConcurrencySlotAsync();
+            await AcquireConcurrencySlotAsync(cancellationToken);
 
             // 3. Apply any additional custom rate limiters
             foreach (var limiter in _limiters)
             {
-                await limiter.WaitAsync();
+                await limiter.WaitAsync(cancellationToken);
             }
         }
 
         /// <summary>
         /// Enforces minimum delay between consecutive requests
         /// </summary>
-        private async Task ApplyDelayAsync()
+        private async Task ApplyDelayAsync(CancellationToken cancellationToken)
         {
             if (_delayMs <= 0)
                 return;
 
-            var now = DateTime.UtcNow;
-            var timeSinceLastRequest = now - _lastRequestTime;
-            var delayNeeded = TimeSpan.FromMilliseconds(_delayMs) - timeSinceLastRequest;
+            // Reserve the next request slot under a lock so concurrent callers are spaced apart.
+            TimeSpan delayNeeded;
+            lock (_delayLock)
+            {
+                var now = DateTime.UtcNow;
+                var scheduled = _nextAllowedTime > now ? _nextAllowedTime : now;
+                _nextAllowedTime = scheduled.AddMilliseconds(_delayMs);
+                delayNeeded = scheduled - now;
+            }
 
             if (delayNeeded.TotalMilliseconds > 0)
             {
                 var delayMs = (int)Math.Ceiling(delayNeeded.TotalMilliseconds);
                 _logger.LogDebug("Rate limit: waiting {DelayMs}ms before next request", delayMs);
-                await Task.Delay(delayMs);
+                await Task.Delay(delayMs, cancellationToken);
             }
-
-            _lastRequestTime = DateTime.UtcNow;
         }
 
         /// <summary>
         /// Acquires a concurrency slot, waiting if necessary
         /// </summary>
-        private async Task AcquireConcurrencySlotAsync()
+        private async Task AcquireConcurrencySlotAsync(CancellationToken cancellationToken)
         {
             var availableBefore = _semaphore.CurrentCount;
 
@@ -115,7 +119,7 @@ namespace WebCrawler.Infrastructure.RateLimiting
                 _logger.LogDebug("Concurrent request limit reached, waiting for slot to become available");
             }
 
-            await _semaphore.WaitAsync();
+            await _semaphore.WaitAsync(cancellationToken);
             _logger.LogDebug("Request slot acquired, {AvailableSlots} slots remaining", _semaphore.CurrentCount);
         }
 
@@ -139,7 +143,11 @@ namespace WebCrawler.Infrastructure.RateLimiting
         /// </summary>
         public void Reset()
         {
-            _lastRequestTime = DateTime.UtcNow.AddSeconds(-1);
+            lock (_delayLock)
+            {
+                _nextAllowedTime = DateTime.UtcNow;
+            }
+
             _logger.LogDebug("Rate limiter delay reset");
 
             // Reset custom limiters

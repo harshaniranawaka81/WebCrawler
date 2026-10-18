@@ -11,14 +11,14 @@ public class SameHostFilter : IUrlFilter
 {
     private readonly ILogger<SameHostFilter>? _logger;
 
-    public string FilterName => "SameHost";
+    public string FilterName => UrlFilterNames.SameHost;
 
     public SameHostFilter(ILogger<SameHostFilter>? logger = null)
     {
         _logger = logger;
     }
 
-    public Task<bool> ShouldIncludeAsync(Uri uri, Uri baseUri)
+    public Task<bool> ShouldIncludeAsync(Uri uri, Uri baseUri, CancellationToken cancellationToken = default)
     {
         var isSameHost = uri.Host.Equals(baseUri.Host, StringComparison.OrdinalIgnoreCase);
 

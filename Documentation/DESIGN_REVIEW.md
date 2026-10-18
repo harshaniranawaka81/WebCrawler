@@ -42,8 +42,8 @@ Dependencies point inward. Core has no project references. Application and Infra
 | Decision | Benefit | Cost |
 |---|---|---|
 | Layered architecture with many small interfaces | Testability and replaceable parts | More files and indirection for a small application |
-| Sequential breadth-first loop in `Crawler` | Simple, predictable, easy to reason about | No parallelism, so throughput is bound by latency and the request delay |
-| Inline link checks in `Crawler` while `UrlFilterChain` exists | Straightforward per-link statistics | Two overlapping mechanisms. The filter chain is unused by the crawl loop, so the design is duplicated |
+| Channel-based worker pool in `Crawler` | Real concurrency up to `MaxConcurrentRequests` | Synchronization needed for statistics, visited set, and output. Output order is nondeterministic |
+| `Crawler` uses `IUrlFilterChain` for same-host and robots checks | One mechanism, extensible filters | Crawler maps rejection names to statistics, which couples it to `UrlFilterNames` |
 | Fail-open on robots.txt errors | Crawl is robust | A transient robots failure can cause the crawler to fetch pages the site disallows |
 | Polly retry plus circuit breaker for all requests | Resilience to transient errors | One breaker covers every host, so failures on one path can block unrelated requests |
 | Rate limiter applied inside `HttpPageFetcher` | All requests, including robots.txt, are throttled | Throttling is coupled to the fetcher, so the crawler cannot apply per-host policies |
@@ -59,13 +59,13 @@ These come from reading the current code.
 
 ### Crawling
 
-- **No real concurrency.** `Crawler.CrawlAsync` awaits each page in turn, so `MaxConcurrentRequests` has no practical effect. Only the delay between requests limits throughput.
+- **Global request delay.** The rate limiter's delay is global, not per host, so `DelayBetweenRequestsMs` also serializes the start of concurrent requests.
 - **Only `<a href>` links are followed.** No scripts, forms, frames, sitemaps, or JavaScript-rendered content.
 - **Same host only.** `IsSameHost` compares hosts and ignores port, and subdomains are treated as different hosts.
 - **No content-type check.** The crawler downloads every linked resource as a string, including binaries, and parses it as HTML.
 - **No redirect, canonical-URL, or `<base>` handling** beyond what `HttpClient` does by default.
 - **`MaxPagesToCrawl` counts visited URLs, not successful pages.** Failed pages use up the budget.
-- **No cancellation support.** `CrawlAsync` takes no `CancellationToken`, so a crawl cannot be stopped cleanly.
+Storage is finalized with statistics by the crawler, which returns partial statistics on cancellation, and the orchestrator displays them.
 - **No resume or persistence of the queue.**
 
 ### Robots.txt
@@ -86,9 +86,8 @@ These come from reading the current code.
 
 ### Rate limiting
 
-- **`CompositeRateLimiter` is not thread-safe for the delay.** `_lastRequestTime` is read and written without a lock, so parallel callers could bypass the delay.
+- **The delay serializes request starts.** `CompositeRateLimiter` reserves start times under a lock, so concurrent workers are spaced by `DelayBetweenRequestsMs`, which limits the benefit of extra workers.
 - **Delay is global,** not per host.
-- **`Task.Delay` and the semaphore wait take no cancellation token.**
 
 ### Storage and output
 
@@ -108,9 +107,9 @@ These come from reading the current code.
 
 ### High value
 
-1. **Make crawling concurrent.** Use a worker pool or `Channel<Uri>` with `MaxConcurrentRequests` workers. Keep the visited set thread-safe (already a `ConcurrentDictionary`). Make `CompositeRateLimiter` thread-safe, for example by using a lock or a per-host timestamp.
-2. **Add `CancellationToken` support** from `Program` through the orchestrator, crawler, fetcher, rate limiter, and robots checker. Hook it to Ctrl+C.
-3. **Use one filtering mechanism.** Either have `Crawler` call `IUrlFilterChain` (and report rejection reasons in statistics) or remove the chain. This removes duplicated logic.
+1. **Done: concurrent crawling.** Implemented with `Channel<Uri>` workers and a thread-safe `CompositeRateLimiter`. Consider a per-host delay as a follow-up.
+2. **Done: `CancellationToken` support** from `Program` through the orchestrator, crawler, fetcher, rate limiter, and robots checker, hooked to Ctrl+C.
+3. **Done: one filtering mechanism.** `Crawler` calls `IUrlFilterChain` (`SameHostFilter`, plus `RobotsTextFilter` when enabled) and reports rejection reasons in statistics.
 4. **Check content type before parsing.** Skip non-HTML responses, and limit response size.
 5. **Tighten the circuit breaker.** Count only 5xx, timeouts, and network errors, not 4xx. Use a breaker per host (for example through a keyed policy registry).
 6. **Honor 429 and `Retry-After`,** and add jitter to the retry backoff.
@@ -141,9 +140,8 @@ These come from reading the current code.
 
 | Priority | Change | Reason |
 |---|---|---|
-| 1 | Cancellation tokens | Makes the program stoppable and is a prerequisite for safe concurrency |
-| 2 | Content-type and size checks | Avoids downloading and parsing unsuitable resources |
-| 3 | Circuit breaker scope and criteria | Prevents false trips from ordinary 404 responses |
-| 4 | Unify filtering | Removes duplicated logic and gives per-filter statistics |
-| 5 | Concurrent crawling with a thread-safe rate limiter | Delivers the configured concurrency |
-| 6 | Robots cache key and `Crawl-delay` | Improves politeness and correctness |
+| 1 | Content-type and size checks | Avoids downloading and parsing unsuitable resources |
+| 2 | Circuit breaker scope and criteria | Prevents false trips from ordinary 404 responses |
+| 3 | Robots cache key and `Crawl-delay` | Improves politeness and correctness |
+
+Already done

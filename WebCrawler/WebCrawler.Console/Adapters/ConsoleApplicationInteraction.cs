@@ -31,6 +31,8 @@ public class ConsoleApplicationInteraction : IApplicationInteraction
     public async Task<string> GetUrlAsync(string defaultUrl)
     {
         Console.WriteLine("Enter the URL of the website you want to crawl: ");
+        Console.WriteLine("Press Ctrl+C at any time to cancel the crawl and show partial results.\n");
+
         string? url = Console.ReadLine();
 
         if (string.IsNullOrEmpty(url))
@@ -51,7 +53,7 @@ public class ConsoleApplicationInteraction : IApplicationInteraction
 
     public void DisplayCrawlStart(string url)
     {
-        Console.WriteLine($"\n[START] Starting crawl from: {url}\n");
+        Console.WriteLine($"\n[START] Starting crawl from: {url}");    
         Log.Information("Starting crawl from: {Url}", url);
     }
 

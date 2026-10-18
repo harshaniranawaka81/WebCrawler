@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using WebCrawler.Core.Filters;
 using WebCrawler.Core.Interfaces;
 
 namespace WebCrawler.Infrastructure.Filters;
@@ -13,7 +14,7 @@ public class RobotsTextFilter : IUrlFilter
     private readonly IRobotsChecker _robotsChecker;
     private readonly ILogger<RobotsTextFilter>? _logger;
 
-    public string FilterName => "RobotsText";
+    public string FilterName => UrlFilterNames.RobotsText;
 
     public RobotsTextFilter(IRobotsChecker robotsChecker, ILogger<RobotsTextFilter>? logger = null)
     {
@@ -21,11 +22,11 @@ public class RobotsTextFilter : IUrlFilter
         _logger = logger;
     }
 
-    public async Task<bool> ShouldIncludeAsync(Uri uri, Uri baseUri)
+    public async Task<bool> ShouldIncludeAsync(Uri uri, Uri baseUri, CancellationToken cancellationToken = default)
     {
         try
         {
-            var allowed = await _robotsChecker.IsAllowedAsync(uri);
+            var allowed = await _robotsChecker.IsAllowedAsync(uri, cancellationToken);
 
             if (!allowed)
             {
@@ -33,6 +34,10 @@ public class RobotsTextFilter : IUrlFilter
             }
 
             return allowed;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

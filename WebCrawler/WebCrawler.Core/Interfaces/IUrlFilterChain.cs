@@ -16,7 +16,7 @@ public interface IUrlFilterChain
     /// - bool: True if URL passes all filters, false otherwise
     /// - string: The name of the filter that rejected the URL (if rejected), null if passed or no filters
     /// </returns>
-    Task<(bool Passed, string? RejectionReason)> FilterAsync(Uri uri, Uri baseUri);
+    Task<(bool Passed, string? RejectionReason)> FilterAsync(Uri uri, Uri baseUri, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Adds a filter to the chain.

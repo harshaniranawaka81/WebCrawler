@@ -103,7 +103,7 @@ public class RobotsCheckerTests
 
         public int FetchCount { get; private set; }
 
-        public Task<string> GetContentAsync(Uri uri)
+        public Task<string> GetContentAsync(Uri uri, CancellationToken cancellationToken = default)
         {
             FetchCount++;
             if (_throwOnFetch)

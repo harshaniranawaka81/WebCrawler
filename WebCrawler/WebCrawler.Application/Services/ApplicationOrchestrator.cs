@@ -48,7 +48,7 @@ public class ApplicationOrchestrator : IApplicationOrchestrator
     /// <summary>
     /// Runs the complete application flow.
     /// </summary>
-    public async Task<int> RunAsync()
+    public async Task<int> RunAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -72,16 +72,29 @@ public class ApplicationOrchestrator : IApplicationOrchestrator
 
             // Step 5: Execute crawl
             var stats = await _exceptionHandler.ExecuteAsync(
-                async () => await _crawler.CrawlAsync(rootUri),
+                async () => await _crawler.CrawlAsync(rootUri, cancellationToken),
                 "Web Crawling");
 
             // Step 6: Display results
             _interaction.DisplayResults(stats, _storage);
 
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("Crawl cancelled by user");
+                _interaction.DisplayError("Crawl cancelled. Partial results shown above.");
+                return 130;
+            }
+
             // Step 7: Display completion
             _interaction.DisplayCompletion();
 
             return 0;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("Crawl cancelled by user");
+            _interaction.DisplayError("Crawl cancelled.");
+            return 130;
         }
         catch (ConfigurationException ex)
         {

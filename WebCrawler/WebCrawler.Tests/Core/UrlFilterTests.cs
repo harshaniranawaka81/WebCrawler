@@ -42,37 +42,19 @@ public class UrlFilterTests
 
         Assert.That(result, Is.True);
     }
-
-    [Test]
-    public async Task UniqueUrlFilter_AllowsUnvisitedUrl()
-    {
-        var visitedUrls = new HashSet<string>();
-        var filter = new UniqueUrlFilter(uri => visitedUrls.Contains(uri.AbsoluteUri));
-        var uri = new Uri("https://example.com/page");
-        var baseUri = new Uri("https://example.com/");
-
-        var result = await filter.ShouldIncludeAsync(uri, baseUri);
-
-        Assert.That(result, Is.True);
-    }
-
-    [Test]
-    public async Task UniqueUrlFilter_RejectsVisitedUrl()
-    {
-        var visitedUrls = new HashSet<string> { "https://example.com/page" };
-        var filter = new UniqueUrlFilter(uri => visitedUrls.Contains(uri.AbsoluteUri));
-        var uri = new Uri("https://example.com/page");
-        var baseUri = new Uri("https://example.com/");
-
-        var result = await filter.ShouldIncludeAsync(uri, baseUri);
-
-        Assert.That(result, Is.False);
-    }
 }
 
 [TestFixture]
 public class UrlFilterChainTests
 {
+    private sealed class ThrowingFilter : WebCrawler.Core.Interfaces.IUrlFilter
+    {
+        public string FilterName => "Throwing";
+
+        public Task<bool> ShouldIncludeAsync(Uri uri, Uri baseUri, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Should not be reached");
+    }
+
     [Test]
     public async Task UrlFilterChain_AllFiltersMustPass()
     {
@@ -96,7 +78,7 @@ public class UrlFilterChainTests
         var testUri = new Uri("https://different.com/page");
 
         chain.AddFilter(new SameHostFilter());
-        chain.AddFilter(new UniqueUrlFilter(_ => false)); // Always reject if reached
+        chain.AddFilter(new ThrowingFilter());
 
         var (passed, reason) = await chain.FilterAsync(testUri, baseUri);
 
@@ -109,7 +91,7 @@ public class UrlFilterChainTests
     {
         var chain = new UrlFilterChain()
             .AddFilter(new SameHostFilter())
-            .AddFilter(new UniqueUrlFilter(_ => false));
+            .AddFilter(new SameHostFilter());
 
         var (passed, reason) = await chain.FilterAsync(
             new Uri("https://example.com/page"),

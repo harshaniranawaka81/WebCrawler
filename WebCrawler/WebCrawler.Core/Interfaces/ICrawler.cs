@@ -5,6 +5,6 @@ namespace WebCrawler.Core.Interfaces
 {
     public interface ICrawler
     {
-        Task<CrawlStatistics> CrawlAsync(Uri rootUrl);
+        Task<CrawlStatistics> CrawlAsync(Uri rootUrl, CancellationToken cancellationToken = default);
     }
 }

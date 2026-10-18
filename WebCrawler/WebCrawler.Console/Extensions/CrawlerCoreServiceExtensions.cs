@@ -23,13 +23,17 @@ public static class CrawlerCoreServiceExtensions
 
         services.AddScoped<IUrlFilterChain>(sp =>
         {
-            var logger = sp.GetRequiredService<ILogger<UrlFilterChain>>();
-            var robotsChecker = sp.GetRequiredService<IRobotsChecker>();
+            var settings = sp.GetRequiredService<IOptions<WebCrawlerSettings>>().Value;
+            var chain = new UrlFilterChain(sp.GetRequiredService<ILogger<UrlFilterChain>>());
 
-            var chain = new UrlFilterChain(logger);
-            chain.AddFilter(new SameHostFilter(sp.GetRequiredService<ILogger<SameHostFilter>>()))
-                  .AddFilter(new RobotsTextFilter(robotsChecker,
-                      sp.GetRequiredService<ILogger<RobotsTextFilter>>()));
+            chain.AddFilter(new SameHostFilter(sp.GetRequiredService<ILogger<SameHostFilter>>()));
+
+            if (settings.RespectRobotsTxt)
+            {
+                chain.AddFilter(new RobotsTextFilter(
+                    sp.GetRequiredService<IRobotsChecker>(),
+                    sp.GetRequiredService<ILogger<RobotsTextFilter>>()));
+            }
 
             return chain;
         });
@@ -47,7 +51,7 @@ public static class CrawlerCoreServiceExtensions
             sp.GetRequiredService<IOutputWriter>(),
             sp.GetRequiredService<ILinkStorage>(),
             sp.GetRequiredService<IExceptionHandler>(),
-            sp.GetRequiredService<IRobotsChecker>(),
+            sp.GetRequiredService<IUrlFilterChain>(),
             sp.GetRequiredService<IOptions<WebCrawlerSettings>>().Value,
             sp.GetRequiredService<ILogger<Crawler>>());
     }

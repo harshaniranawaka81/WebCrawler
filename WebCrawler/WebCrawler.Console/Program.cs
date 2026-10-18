@@ -71,10 +71,18 @@ IServiceProvider ConfigureServices(IConfiguration configuration)
 
 async Task<int> RunApplicationAsync(IServiceProvider serviceProvider)
 {
+    using var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        Log.Information("Ctrl+C pressed, cancelling crawl");
+        cts.Cancel();
+    };
+
     try
     {
         var orchestrator = serviceProvider.GetRequiredService<IApplicationOrchestrator>();
-        return await orchestrator.RunAsync();
+        return await orchestrator.RunAsync(cts.Token);
     }
     catch (Exception ex)
     {
