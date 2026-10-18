@@ -36,6 +36,7 @@ public class CrawlerIntegrationTests
             """,
         ["/contact"] = "<html><body><a href=\"/about\">About</a></body></html>",
         ["/team"] = "<html><body>Team page</body></html>",
+        ["/broken"] = "<html><body><a href=\"/missing\">Missing</a><a href=\"/team\">Team</a></body></html>",
     };
 
     private WebApplication? _app;
@@ -61,6 +62,12 @@ public class CrawlerIntegrationTests
             {
                 context.Response.ContentType = "text/plain";
                 await context.Response.WriteAsync(RobotsTxt);
+                return;
+            }
+
+            if (path == "/slow")
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), context.RequestAborted);
                 return;
             }
 
@@ -166,6 +173,93 @@ public class CrawlerIntegrationTests
         }
 
         Assert.That(stats.PagesSuccessful, Is.LessThanOrEqualTo(2));
+    }
+
+    [Test]
+    public async Task CrawlAsync_WithMultipleWorkers_ProducesSameResultsAsSingleWorker()
+    {
+        var settings = CreateSettings(_tempDirectory);
+        settings.MaxConcurrentRequests = 4;
+
+        var stats = await CrawlAsync(settings, _baseUrl + "/");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(stats.PagesSuccessful, Is.EqualTo(4));
+            Assert.That(stats.DisallowedByRobotsTxt, Is.EqualTo(1));
+            Assert.That(stats.DifferentHost, Is.EqualTo(1));
+            Assert.That(stats.PagesFailed, Is.Zero);
+        });
+    }
+
+    [Test]
+    public async Task CrawlAsync_WithRobotsDisabled_FetchesDisallowedPath()
+    {
+        var settings = CreateSettings(_tempDirectory);
+        settings.RespectRobotsTxt = false;
+
+        var stats = await CrawlAsync(settings, _baseUrl + "/");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(stats.DisallowedByRobotsTxt, Is.Zero);
+            Assert.That(stats.PagesFailed, Is.EqualTo(1), "/private/secret is fetched and returns 404.");
+            Assert.That(stats.PagesSuccessful, Is.EqualTo(4));
+        });
+    }
+
+    [Test]
+    public async Task CrawlAsync_WithBrokenLink_CountsFailedPageAndContinues()
+    {
+        var stats = await CrawlAsync(CreateSettings(_tempDirectory), _baseUrl + "/broken");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(stats.PagesFailed, Is.EqualTo(1), "/missing returns 404.");
+            Assert.That(stats.PagesSuccessful, Is.GreaterThanOrEqualTo(2), "Crawl continues past the broken link.");
+        });
+    }
+
+    [Test]
+    public async Task CrawlAsync_WhenCancelledDuringSlowRequest_ReturnsPartialStatsQuickly()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        var stats = await CrawlAsync(CreateSettings(_tempDirectory), _baseUrl + "/slow", cts.Token);
+
+        stopwatch.Stop();
+        Assert.Multiple(() =>
+        {
+            Assert.That(stopwatch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(10)));
+            Assert.That(stats.PagesSuccessful, Is.Zero);
+            Assert.That(stats.EndTime, Is.Not.EqualTo(default(DateTime)));
+        });
+    }
+
+    private static async Task<CrawlStatistics> CrawlAsync(
+        WebCrawlerSettings settings,
+        string url,
+        CancellationToken cancellationToken = default)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["HttpClientPolicies:RetryCount"] = "0",
+                ["HttpClientPolicies:CircuitBreakerFailureThreshold"] = "100",
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Options.Create(settings));
+        services.AddCrawlerInfrastructure(configuration);
+        services.AddCrawlerCore();
+
+        await using var provider = services.BuildServiceProvider();
+        await using var scope = provider.CreateAsyncScope();
+        var crawler = scope.ServiceProvider.GetRequiredService<ICrawler>();
+        return await crawler.CrawlAsync(new Uri(url), cancellationToken);
     }
 
     private WebCrawlerSettings CreateSettings(string outputFile) => new()
