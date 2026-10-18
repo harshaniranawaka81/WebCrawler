@@ -18,6 +18,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WebCrawler.Core\WebCrawler.Core.csproj" />
+    <ProjectReference Include="..\WebCrawler.Application\WebCrawler.Application.csproj" />
+    <ProjectReference Include="..\WebCrawler.Infrastructure\WebCrawler.Infrastructure.csproj" />
+    <ProjectReference Include="..\WebCrawler.Console\WebCrawler.Console.csproj" />
   </ItemGroup>
 
   <ItemGroup>

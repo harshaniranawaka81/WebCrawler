@@ -8,7 +8,6 @@
 
   <ItemGroup>
 	<ProjectReference Include="..\WebCrawler.Core\WebCrawler.Core.csproj" />
-	<ProjectReference Include="..\WebCrawler.Infrastructure\WebCrawler.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

@@ -2,8 +2,7 @@
 using WebCrawler.Configuration;
 using WebCrawler.Core.Interfaces;
 using WebCrawler.Extensions;
-using WebCrawler.Infrastructure.Policies;
-using WebCrawler.Infrastructure.Configuration;
+using WebCrawler.Infrastructure.Http;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;

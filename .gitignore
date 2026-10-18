@@ -22,3 +22,5 @@
 /WebCrawler/WebCrawler.Console/obj
 /.vs/WebCrawler/CopilotIndices
 /WebCrawler/WebCrawler.Console/bin/Debug/net10.0
+/WebCrawler/WebCrawler.IntegrationTests/obj
+/WebCrawler/WebCrawler.IntegrationTests/bin/Debug/net10.0

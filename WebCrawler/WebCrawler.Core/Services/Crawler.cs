@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
+using WebCrawler.Configuration;
 using WebCrawler.Core.Helpers;
 using WebCrawler.Core.Interfaces;
 using WebCrawler.Core.Models;
@@ -20,7 +21,7 @@ namespace WebCrawler.Core.Services
         private readonly ILinkStorage? _linkStorage;
         private readonly IExceptionHandler? _exceptionHandler;
         private readonly IRobotsChecker? _robotsChecker;
-        private readonly CrawlerConfiguration _config;
+        private readonly WebCrawlerSettings _config;
         private readonly ILogger<Crawler> _logger;
 
         private readonly ConcurrentDictionary<string, byte> _visited = new();
@@ -43,7 +44,7 @@ namespace WebCrawler.Core.Services
             ILinkStorage? linkStorage,
             IExceptionHandler? exceptionHandler,
             IRobotsChecker? robotsChecker,
-            CrawlerConfiguration config,
+            WebCrawlerSettings config,
             ILogger<Crawler>? logger = null)
         {
             _pageFetcher = pageFetcher ?? throw new ArgumentNullException(nameof(pageFetcher));
